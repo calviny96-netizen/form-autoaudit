@@ -1,0 +1,43 @@
+{
+  "name": "auto-audit-interview",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3210",
+    "build": "next build --webpack",
+    "start": "next start -H 127.0.0.1 -p 3210",
+    "migrate": "node --env-file=.env scripts/migrate.mjs",
+    "bootstrap": "node --env-file=.env scripts/bootstrap.mjs",
+    "test": "node --env-file=.env --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@heroui/react": "2.8.10",
+    "@lottiefiles/dotlottie-react": "0.17.1",
+    "framer-motion": "12.34.0",
+    "lucide-react": "0.563.0",
+    "luxon": "3.7.2",
+    "next": "16.4.0",
+    "pg": "8.18.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "sharp": "0.35.5",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/luxon": "3.7.1",
+    "@types/node": "22.19.11",
+    "@types/pg": "8.16.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "autoprefixer": "10.4.24",
+    "postcss": "8.5.29",
+    "tailwindcss": "3.4.19",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "postcss-selector-parser": "7.1.6",
+    "esbuild": "0.28.2"
+  }
+}
