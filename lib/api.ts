@@ -56,7 +56,10 @@ export async function handle(req: Request, parts: string[]) {
     const url = new URL(req.url);
     if (!["GET", "HEAD"].includes(method)) {
       const origin = req.headers.get("origin");
-      if (origin && origin !== new URL(process.env.APP_URL!).origin)
+      const localOrigin =
+        (origin === "http://localhost:3210" || origin === "http://127.0.0.1:3210") &&
+        req.headers.get("host") === new URL(origin).host;
+      if (origin && origin !== new URL(process.env.APP_URL!).origin && !localOrigin)
         fail(403, "Asal permintaan tidak diizinkan");
     }
     if (route === "health/live") return json({ status: "ok" });

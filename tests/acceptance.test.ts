@@ -391,3 +391,23 @@ test(
     assert.ok(responses.every((r) => r.status === 200));
   },
 );
+
+test("local campaign creation stays allowed after public deployment, but foreign origins do not", async () => {
+  const request = (origin: string, host: string, slug: string) => handle(
+    new Request(`http://${host}/api/companies/${cid}/campaigns`, {
+      method: "POST",
+      headers: { origin, host, cookie: "aa_session=" + session, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Local origin test", slug }),
+    }),
+    ["companies", cid, "campaigns"],
+  );
+  assert.equal((await request("http://localhost:3210", "localhost:3210", "local-host")).status, 200);
+  assert.equal((await request("http://127.0.0.1:3210", "127.0.0.1:3210", "local-ip")).status, 200);
+  for (const [origin, host] of [
+    ["https://evil.test", "localhost:3210"],
+    ["http://localhost:3210.evil.test", "localhost:3210"],
+    ["http://localhost:3000", "localhost:3210"],
+    ["http://localhost:3210", "calendar.dbautoaudit.stream"],
+    ["null", "localhost:3210"],
+  ]) assert.equal((await request(origin, host, "rejected")).status, 403);
+});

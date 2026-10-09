@@ -71,3 +71,7 @@ Browser in-app pada build produksi:
 - Sharp diperbarui ke 0.35.5; PostCSS 8.5.29, selector parser 7.1.6, esbuild 0.28.2. Temuan audit paket tersebut terselesaikan.
 - Uji concurrency merupakan 50 request paralel pada satu instance lokal; belum stress/load test jangka panjang atau audit keamanan eksternal.
 - Daftar dan CSV dibatasi 5.000 hasil per pencarian; belum pagination server untuk volume besar.
+
+## Perbaikan origin localhost — 9 Oktober 2026
+
+Form pembuatan gelombang masih terbuka di `http://localhost:3210`, sedangkan APP_URL sudah menggunakan domain publik. Pemeriksaan origin kini menerima localhost/127.0.0.1 pada port 3210 hanya jika Host cocok persis; origin lokal tetap ditolak pada domain publik. 13/13 tes lulus, termasuk membuat gelombang dari kedua origin lokal serta penolakan situs asing, port berbeda, hostname palsu, dan origin null. Build produksi lulus dan proses PM2 direstart. Pemeriksaan HTTP live membuktikan origin sah lolos ke pemeriksaan login (401 tanpa sesi) sedangkan origin tidak sah tetap 403. Readiness HTTPS 200. Form pengguna tidak disubmit atau direload.

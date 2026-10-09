@@ -38,7 +38,7 @@ File logo persisten: `/home/oem/.local/share/auto-audit-interview/uploads`. Logo
 
 ## Keamanan dan transaksi
 
-Cookie HttpOnly, SameSite=Lax, sesi satu hari; cookie Secure wajib untuk domain HTTPS. Password menggunakan scrypt dengan salt acak. Password tidak dapat dilihat. Session dicabut pada reset atau nonaktif global; perubahan membership berlaku pada permintaan berikutnya. POST memeriksa Origin terhadap APP_URL. Database memeriksa FK tenant gabungan. Semua API company memverifikasi membership dan izin.
+Cookie HttpOnly, SameSite=Lax, sesi satu hari; cookie Secure wajib untuk domain HTTPS. Password menggunakan scrypt dengan salt acak. Password tidak dapat dilihat. Session dicabut pada reset atau nonaktif global; perubahan membership berlaku pada permintaan berikutnya. POST memeriksa Origin terhadap APP_URL. Akses lokal `http://localhost:3210` dan `http://127.0.0.1:3210` juga diizinkan hanya jika Host permintaan persis sesuai origin lokal tersebut; origin lokal tidak diterima pada hostname publik. Database memeriksa FK tenant gabungan. Semua API company memverifikasi membership dan izin.
 
 Booking mengunci company lalu gelombang dan slot dalam transaksi. Ketersediaan dihitung dari booking non-cancelled yang committed; tidak ada counter terpisah yang bisa melenceng. Cancel berulang tidak menambah kursi lebih dari sekali. Pemindahan slot dan rollback atomik. Unique partial index menjaga satu email aktif per gelombang; email lowercase. Idempotency menyimpan fingerprint permintaan; retry identik mengembalikan token booking yang sama bahkan jika company kemudian ditutup.
 
