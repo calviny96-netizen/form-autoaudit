@@ -1,5 +1,17 @@
 # Hasil pengujian — 8 Oktober 2026
 
+## Pembaruan deployment — 9 Oktober 2026
+
+- Domain publik `https://calendar.dbautoaudit.stream` aktif melalui tunnel `n8n-autoaudit`; DNS CNAME dan rute dibuat melalui browser Brave-Marketing. Lima rute lama dipertahankan.
+- HTTPS `/api/health/ready` mengembalikan HTTP 200 dan `status: ready`. HTTP dialihkan 308 ke HTTPS.
+- Login Super Admin di browser melalui domain publik berhasil. Cookie Secure + HttpOnly + SameSite=Lax diverifikasi; sesi uji diakhiri melalui logout.
+- `APP_URL` menggunakan domain publik dan `COOKIE_SECURE=true`; `.env` tidak masuk Git. Origin lokal tetap loopback.
+- 12/12 tes otomatis lulus, termasuk redirect HTTPS dan preservasi health check lokal. Build produksi lulus; hanya proses PM2 aplikasi kalender yang direstart.
+- Screenshot: `docs/cloudflare-calendar-route.png` dan `docs/calendar-online-dashboard.png`.
+- SMTP belum dikonfigurasi. Password admin yang diminta pengguna tidak diubah dan masih sederhana; ganti untuk mengurangi risiko akses publik.
+
+Catatan di bawah merupakan hasil baseline 8 Oktober sebelum publikasi domain.
+
 Lingkungan: Node 22.23.3, Next 16.4.0 production, PostgreSQL 17.11 pada pgvector-db, database khusus auto_audit_interview, PM2 auto-audit-interview, localhost:3210.
 
 ## Otomatis: 11/11 lulus

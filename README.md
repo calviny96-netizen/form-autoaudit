@@ -1,10 +1,14 @@
 # Auto Audit Interview Scheduler
 
-Aplikasi Next.js + TypeScript, HeroUI 2, Tailwind 3, PostgreSQL 17, `pg`, Zod. Satu aplikasi, satu pool maksimum 8 koneksi. UI bahasa Indonesia. Berjalan lokal di **http://localhost:3210**, proses PM2 **auto-audit-interview**.
+Aplikasi Next.js + TypeScript, HeroUI 2, Tailwind 3, PostgreSQL 17, `pg`, Zod. Satu aplikasi, satu pool maksimum 8 koneksi. UI bahasa Indonesia. Online di **https://calendar.dbautoaudit.stream**, origin lokal **http://127.0.0.1:3210**, proses PM2 **auto-audit-interview**.
 
 ## Akses pertama
 
-Buka `/home/oem/.local/share/auto-audit-interview/akses-awal.txt`. Tautan aktivasi berlaku 24 jam dan sekali pakai; buat password minimal 12 karakter. Email awal `owner@autoaudit.local`. Password tidak dibuat otomatis atau disimpan sebagai teks. Jika belum ada Super Admin, `npm run bootstrap -- email@company.com` membuat undangan awal. Jangan menjalankan bootstrap ulang terhadap instalasi yang sudah memiliki Super Admin.
+Akun Super Admin aktif: `admin@autoaudit.id`. Gunakan password yang telah Anda tetapkan; password tidak disimpan di repository. Tautan aktivasi awal telah dicabut. Untuk instalasi baru tanpa Super Admin, `npm run bootstrap -- email@company.com` membuat tautan aktivasi sekali pakai.
+
+## Domain publik (9 Oktober 2026)
+
+Cloudflare Tunnel `n8n-autoaudit` (`38fea61a-4782-426a-9b4b-bc475943a938`) meneruskan `calendar.dbautoaudit.stream` ke `http://127.0.0.1:3210`. DNS CNAME dibuat oleh dashboard Cloudflare. Lima rute sebelumnya tidak diubah. `.env` menggunakan `APP_URL=https://calendar.dbautoaudit.stream` dan `COOKIE_SECURE=true`. Browser menggunakan HTTPS; cookie sesi Secure, HttpOnly, SameSite=Lax. Proxy aplikasi mengarahkan HTTP pada hostname publik ke HTTPS, tanpa mengubah health check loopback. Komputer, PM2, cloudflared-n8n.service, dan koneksi internet harus aktif. SMTP belum dikonfigurasi.
 
 ## Instalasi
 
@@ -83,7 +87,7 @@ Startup service existing `pm2-oem.service` telah terpasang dan enabled; tidak di
 - Update: backup terlebih dahulu → `npm ci` → `npm run migrate` → `npm test` → `npm run build` → restart hanya aplikasi ini → readiness dan uji booking. Build dalam folder rilis terpisah direkomendasikan ketika sudah menerima trafik publik.
 - Rollback aplikasi: kembalikan source + lockfile rilis sebelumnya, `npm ci`, build, restart proses ini. Migration destruktif harus dirancang terpisah dan tidak otomatis dibalik. Untuk rollback data, restore backup ke database baru, verifikasi, lalu ganti DATABASE_URL dan restart; jangan overwrite database aktif tanpa persetujuan pemilik data.
 
-Untuk akses internet, pasang reverse proxy HTTPS pada domain yang Anda kelola menuju `127.0.0.1:3210`, ubah APP_URL ke origin domain dan COOKIE_SECURE=true, restart. Jangan membuka port langsung. Domain, TLS, dan SMTP belum disediakan sehingga deployment saat ini lokal.
+Untuk akses internet, pasang reverse proxy HTTPS pada domain yang Anda kelola menuju `127.0.0.1:3210`, ubah APP_URL ke origin domain dan COOKIE_SECURE=true, restart. Jangan membuka port langsung. Domain dan TLS sudah aktif melalui tunnel di atas; SMTP belum dikonfigurasi.
 
 ## Backup dan restore
 

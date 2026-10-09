@@ -23,12 +23,12 @@ const req = async (
   cookie = session,
 ) =>
   handle(
-    new Request("http://localhost:3210/api/" + path, {
+    new Request(process.env.APP_URL + "/api/" + path, {
       method,
       headers: {
         cookie: "aa_session=" + cookie,
         "Content-Type": "application/json",
-        origin: "http://localhost:3210",
+        origin: new URL(process.env.APP_URL!).origin,
       },
       body: data === undefined ? undefined : JSON.stringify(data),
     }),
