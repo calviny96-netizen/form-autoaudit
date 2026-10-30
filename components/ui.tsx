@@ -13,16 +13,33 @@ import {
   ModalFooter,
   Chip,
 } from "@heroui/react";
-import { Check, CalendarDays } from "lucide-react";
+import { Check, CalendarDays, Eye, EyeOff } from "lucide-react";
+import LatticeLoader from "./reactbits/LatticeLoader";
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 export { Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter };
 export function Providers({ children }: { children: React.ReactNode }) {
-  return <HeroUIProvider locale="id-ID">{children}</HeroUIProvider>;
+  return <HeroUIProvider locale="en-US">{children}</HeroUIProvider>;
 }
-export async function api(url: string, method = "GET", data?: unknown) {
+export function Loading({ label = "Loading" }: { label?: string }) {
+  return <LatticeLoader label={label} showTimer={false} color="#0369a1" />;
+}
+export function permissionLabel(value: string) {
+  const [module, action] = value.split(".");
+  const resource = ({ campaigns: "calendars", slots: "time slots", bookings: "bookings", forms: "forms", responses: "form responses", members: "team members", roles: "roles", branding: "branding", settings: "confirmation settings", audit: "audit log" } as Record<string, string>)[module] || module;
+  const verb = ({ read: "View", invite: "Invite", create: "Create", update: "Edit", remove: "Remove", delete: "Delete", cancel: "Cancel", publish: "Publish", archive: "Archive", export: "Export" } as Record<string, string>)[action] || action;
+  return `${verb} ${resource}`;
+}
+export function PasswordField(props: any) {
+  const [visible, setVisible] = useState(false);
+  return <Field {...props} type={visible ? "text" : "password"} maxLength={256} endContent={
+    <button type="button" className="password-toggle" aria-label={visible ? "Hide password" : "Show password"} aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+  } />;
+}
+export async function api(url: string, method = "GET", data?: unknown, options?: { signal?: AbortSignal }) {
   const r = await fetch("/api/" + url, {
     method,
+    signal: options?.signal,
     headers:
       data instanceof FormData ? {} : { "Content-Type": "application/json" },
     body:
@@ -33,7 +50,7 @@ export async function api(url: string, method = "GET", data?: unknown) {
           : JSON.stringify(data),
   });
   const b = await r.json();
-  if (!r.ok) throw Error(b.error ?? "Permintaan gagal");
+  if (!r.ok) throw Error(b.error ?? "Request failed");
   return b;
 }
 export function Field({
@@ -60,6 +77,7 @@ export function Field({
       labelPlacement="outside"
       variant="bordered"
       type={type}
+      placeholder={rest.placeholder ?? " "}
       value={String(value ?? "")}
       onValueChange={onChange}
       isRequired={required}
@@ -90,32 +108,44 @@ export function Badge({ value }: { value: string }) {
       size="sm"
       variant="flat"
       color={
-        ["active", "published", "open", "confirmed", "attended"].includes(value)
+        ["active", "published", "open", "confirmed", "attended", "completed"].includes(value)
           ? "success"
-          : ["cancelled", "inactive", "archived"].includes(value)
+          : ["cancelled", "inactive", "archived", "rejected"].includes(value)
             ? "danger"
-            : "default"
+            : ["pending", "partial"].includes(value) ? "warning" : "default"
       }
     >
       {(
         {
-          active: "Aktif",
-          inactive: "Nonaktif",
-          archived: "Diarsipkan",
+          active: "Active",
+          inactive: "Inactive",
+          archived: "Archived",
           published: "Published",
           draft: "Draft",
-          closed: "Ditutup",
-          open: "Terbuka",
-          cancelled: "Dibatalkan",
-          confirmed: "Terkonfirmasi",
-          attended: "Hadir",
-          absent: "Tidak hadir",
+          closed: "Closed",
+          open: "Open",
+          cancelled: "Cancelled",
+          confirmed: "Confirmed",
+          attended: "Attended",
+          absent: "Absent",
+          pending: "Pending approval",
+          rejected: "Rejected",
+          partial: "Partial",
+          completed: "Completed",
         } as any
       )[value] ?? value}
     </Chip>
   );
 }
-export function Footer() {
+export function Footer({ config }: { config?: any }) {
+  if (config?.mode === "hidden") return null;
+  if (config?.mode === "custom")
+    return config.text || config.image ? (
+      <footer style={{ fontSize: config.text_size, whiteSpace: "normal", flexWrap: "wrap", textAlign: "center" }}>
+        {config.text && <span>{config.text}</span>}
+        {config.image && <img src={config.image} alt="" style={{ width: config.image_width, maxWidth: "100%" }} />}
+      </footer>
+    ) : null;
   return (
     <footer>
       <span>supported by Auto Audit</span>
@@ -129,7 +159,7 @@ export function Footer() {
   );
 }
 export function Empty({
-  text = "Belum ada data",
+  text = "No records yet",
   children,
 }: {
   text?: string;
@@ -151,7 +181,7 @@ export function Notice({ text }: { text: string }) {
   ) : null;
 }
 export function dateTime(v: string, tz = "Asia/Jakarta") {
-  return new Date(v).toLocaleString("id-ID", {
+  return new Date(v).toLocaleString("en-GB", {
     timeZone: tz,
     dateStyle: "medium",
     timeStyle: "short",

@@ -1,108 +1,110 @@
-# Auto Audit Interview Scheduler
+# Auto Audit Calendar & Booking
 
-Aplikasi Next.js + TypeScript, HeroUI 2, Tailwind 3, PostgreSQL 17, `pg`, Zod. Satu aplikasi, satu pool maksimum 8 koneksi. UI bahasa Indonesia. Online di **https://calendar.dbautoaudit.stream**, origin lokal **http://127.0.0.1:3210**, proses PM2 **auto-audit-interview**.
+A general calendar, booking, and form application built with Next.js, TypeScript, HeroUI, Tailwind, and PostgreSQL. All built-in interface text is English. Customer booking pages, public forms, and account pages prioritize mobile screens.
 
-## Akses pertama
+Public application: https://calendar.dbautoaudit.stream
+Local origin: http://127.0.0.1:3210
 
-Akun Super Admin aktif: `admin@autoaudit.id`. Gunakan password yang telah Anda tetapkan; password tidak disimpan di repository. Tautan aktivasi awal telah dicabut. Untuk instalasi baru tanpa Super Admin, `npm run bootstrap -- email@company.com` membuat tautan aktivasi sekali pakai.
+## Company registration
 
-## Domain publik (9 Oktober 2026)
+1. Select **Create a company account** from the centered sign-in card.
+2. Enter the company or brand name, email address, contact person's phone number, password, and matching confirmation.
+3. Passwords need at least eight characters. There are no uppercase, number, symbol, or strength requirements.
+4. Email addresses are normalized to lowercase. Phone numbers are normalized, so `0812…` and `+62 812…` are treated as the same number. Database unique indexes reject duplicate account emails and phone numbers, including concurrent submissions.
+5. Registration creates a Company Owner and company with **Pending approval** status. Pending and rejected accounts cannot sign in.
+6. Super Admin reviews registrations under **Pending companies** and approves or rejects them. Approved owners can sign in with the password they created. Rejections may include a reason recorded for administrators.
 
-Cloudflare Tunnel `n8n-autoaudit` (`38fea61a-4782-426a-9b4b-bc475943a938`) meneruskan `calendar.dbautoaudit.stream` ke `http://127.0.0.1:3210`. DNS CNAME dibuat oleh dashboard Cloudflare. Lima rute sebelumnya tidak diubah. `.env` menggunakan `APP_URL=https://calendar.dbautoaudit.stream` dan `COOKIE_SECURE=true`. Browser menggunakan HTTPS; cookie sesi Secure, HttpOnly, SameSite=Lax. Proxy aplikasi mengarahkan HTTP pada hostname publik ke HTTPS, tanpa mengubah health check loopback. Komputer, PM2, cloudflared-n8n.service, dan koneksi internet harus aktif. SMTP belum dikonfigurasi.
+## Super Admin
 
-## Instalasi
+Super Admin has a dedicated administration interface: **Companies**, **Pending companies**, **User access**, **Audit log**, and **Platform settings**. This interface has no personal calendar or time slot creation menu.
 
-1. Node.js 22+, Docker dengan PostgreSQL 17 existing, PM2.
-2. `npm ci`.
-3. Buat database dan role khusus. Pada mesin ini `node scripts/provision.mjs` sudah dijalankan satu kali. Script menolak menimpa `.env`; jangan menjalankan ulang.
-4. Salin `.env.example` menjadi `.env` hanya untuk instalasi baru, isi credential sendiri, `chmod 600 .env`. Jangan commit secret.
-5. `npm run migrate`, `npm run bootstrap -- email@company.com`, `npm test`, `npm run build`.
-6. `/home/oem/.npm-global/bin/pm2 start ecosystem.config.cjs`, lalu `pm2 save`.
+- **Create company** creates an approved company and a separate Owner account with unique email and phone details. Super Admin does not become that company's Owner.
+- **Edit company** manages company details, time zone, and active/inactive/archived status.
+- **Set up company owner** creates an Owner for a legacy company that currently has only a Super Admin membership.
+- **Login as company** opens the active Owner's workspace in the current session. Access is limited to that company. **Return to Super Admin** restores administration mode. Both actions are audited.
+- **Footer watermark** controls the footer on that company's booking pages, confirmations, and forms: the default "supported by Auto Audit", no footer, or custom text and image with adjustable text size and image width. Only Super Admin can change it; company users, including Owners, cannot.
+- **Reset password** sets a new password directly, with matching confirmation and the same eight-character rule. Existing account sessions and activation links are revoked. Passwords are hashed and are not stored in audit logs. Share the new password privately with the Owner.
 
-Database: `auto_audit_interview`, role non-superuser `auto_audit_interview`, host `127.0.0.1:5432`, container existing `pgvector-db`. Tidak memakai tabel aplikasi lain. Migration SQL bernomor ada di `migrations/`; migration runner menyimpan ledger `schema_migrations` dan menjalankan transaksi.
+## Company workspace
 
-File logo persisten: `/home/oem/.local/share/auto-audit-interview/uploads`. Logo diproses ulang menjadi WebP, isi file diperiksa, maksimum 2 MB dan 16 juta piksel. File served melalui `/api/assets/:filename`, bukan path komputer. Batas upload dapat diperkecil pengelola.
+1. Open **Calendars** and create a calendar for a service, appointment, event, consultation, or other booking purpose.
+2. Set its title, booking link slug, description, location or meeting link, time zone, and optional booking window.
+3. Add customer questions through the form builder. The standard fields are name, email, phone, and booking consent. The form preview defaults to mobile.
+4. Add individual time slots or generate them in a date range. Each slot has its own capacity.
+5. Customize branding and the confirmation page. WhatsApp contact is optional and only opens after the customer clicks its button.
+6. Publish the calendar and share `/b/company-slug/calendar-slug`.
+7. Customers choose a date and time, enter their details, and review the booking before confirming. The selected time remains visible during the form steps.
+8. Manage bookings, attendance, cancellations, and rescheduling from **Bookings**. Configure team memberships, roles, and permissions as needed.
 
-## Panduan pengelola dan admin company
+Booking transactions preserve capacity and tenant isolation. Repeated requests with the same idempotency key return the same confirmation. Historical form responses preserve their original questions and form versions. Inactive companies stop accepting new bookings without cancelling existing ones.
 
-1. Login → Companies → Company baru. Pengelola pembuat otomatis menjadi Owner awal agar company tidak tanpa Owner.
-2. Buka company → Anggota company → Undang pengguna. Pilih Company Owner untuk pengelola pertama. Bagikan tautan aktivasi secara privat. Pengiriman email otomatis tidak diaktifkan. Pengguna existing mendapat membership baru tanpa reset password.
-3. Role & izin: gunakan role awal atau buat role khusus. Pengguna tidak dapat memberikan hak di atas kewenangannya. Role Owner tidak dapat diedit; minimal satu Owner aktif wajib dipertahankan.
-4. Gelombang interview → Gelombang baru. Isi slug, lokasi, zona waktu, periode pendaftaran. Form builder menambahkan pertanyaan dengan ID tetap. Tab preview tersedia dalam ukuran desktop/mobile. Simpan sebagai draft sampai siap.
-5. Kelola jadwal: tambah satu slot atau buat rentang tanggal dan interval, cek preview, lalu simpan. Setiap slot punya kuota sendiri. Slot identik ditolak. Jadwal yang sudah memiliki peserta tidak dapat dipindah waktunya langsung; pindahkan peserta melalui detail booking.
-6. Branding: upload logo, atur warna dan teks, preview, simpan. Warna utama harus memenuhi kontras putih 4.5:1. Footer Auto Audit tidak dapat dikonfigurasi atau dihapus oleh company.
-7. Halaman sukses: atur judul, pesan, nomor/template atau link `https://wa.me/...`. Gelombang dapat override. WhatsApp hanya dibuka setelah klik; tidak mengirim otomatis.
-8. Ubah gelombang menjadi Published, lalu salin link `/b/company-slug/campaign-slug`.
-9. Peserta: cari nama/email/telepon/kode; buka detail untuk jawaban historis, hadir/tidak hadir, batal, atau pindah sesi. CSV dilindungi izin dan formula injection. Daftar/ekspor saat ini maksimum 5.000 baris per pencarian.
-10. Menonaktifkan/mengarsipkan company menghentikan booking baru; booking lama tidak dibatalkan. Reset akses global hanya Super Admin karena akun bisa menjadi anggota banyak company.
+## Forms
 
-## Keamanan dan transaksi
+**Forms** sits below **Calendars** in the company workspace. A company can have any number of forms, each with its own link `/f/company-slug/form-slug`.
 
-Cookie HttpOnly, SameSite=Lax, sesi satu hari; cookie Secure wajib untuk domain HTTPS. Password menggunakan scrypt dengan salt acak. Password tidak dapat dilihat. Session dicabut pada reset atau nonaktif global; perubahan membership berlaku pada permintaan berikutnya. POST memeriksa Origin terhadap APP_URL. Akses lokal `http://localhost:3210` dan `http://127.0.0.1:3210` juga diizinkan hanya jika Host permintaan persis sesuai origin lokal tersebut; origin lokal tidak diterima pada hostname publik. Database memeriksa FK tenant gabungan. Semua API company memverifikasi membership dan izin.
+1. Select **New form**, enter a title, choose the language of the built-in buttons and messages (English or Bahasa Indonesia), and start from a blank form or a template.
+2. The builder has three parts: the block list on the left, a live phone or desktop preview in the middle, and the settings of the selected item on the right. On small screens the three parts become **Blocks**, **Edit**, and **Preview** tabs.
+3. Add blocks from the palette by clicking them or dragging them into the list. Drag the handle to reorder, or use the row menu to duplicate, move, or delete. Available blocks: name, email, phone, short text, long text, statement, multiple choice, checkboxes, dropdown, yes/no, rating, opinion scale, number, date, and upload file.
+4. Each block has a question, optional description, required switch, and its own options, such as answer options, placeholder, length or value limits, number of stars, and scale labels. Pasting several lines into an answer option creates one option per line.
+5. **Logic** sends respondents to a later question or to a specific ending, per answer for multiple choice, dropdown, and yes/no, or for every answer of other blocks. Jumps only go forward, so every path ends. A jump is reset when its target is removed or moved earlier.
+6. **Design** sets the logo (company logo, a custom logo, or none), a banner image for the welcome screen or every screen, the button color, a background, the progress bar, and question numbers. Images are PNG, JPEG, or WebP up to 5 MB and are stored as WebP.
+7. Each form has one or more **ending pages**. An ending has a title, message, an icon or an uploaded image, up to six link buttons (web address, WhatsApp link, `mailto:`, or `tel:`) with their own style and icon, and an optional **fill out again** button. The first ending is the default.
+8. **Publish** makes the form reachable. **Closed** forms show a closed message; draft and archived forms cannot be opened by respondents. Changing a published form requires the publish permission.
 
-Booking mengunci company lalu gelombang dan slot dalam transaksi. Ketersediaan dihitung dari booking non-cancelled yang committed; tidak ada counter terpisah yang bisa melenceng. Cancel berulang tidak menambah kursi lebih dari sekali. Pemindahan slot dan rollback atomik. Unique partial index menjaga satu email aktif per gelombang; email lowercase. Idempotency menyimpan fingerprint permintaan; retry identik mengembalikan token booking yang sama bahkan jika company kemudian ditutup.
+Respondents see one question per screen with a progress bar. On a keyboard, Enter continues and letter or number keys pick an answer.
 
-Jawaban menyimpan label dan konfigurasi field ketika submit, serta referensi form_versions. Token sukses acak 256 bit, kode booking acak 64 bit. Token adalah akses baca ke detail konfirmasi: bagikan hanya kepada peserta. Endpoint publik tidak mengembalikan daftar peserta. Akses data peserta oleh Super Admin dicatat. Audit tidak mencatat password, token, atau isi jawaban.
+Answers are saved while the form is being filled in: shortly after the respondent stops typing, and immediately when they move to another question. A response therefore exists from the first answer and is marked **Partial** until it is submitted, then **Completed**. Partial responses keep what was typed, even if it is not yet valid; submission validates every question on the path the respondent took. Reopening the link on the same device within seven days continues the same response.
 
-Rate limit persisten PostgreSQL: login per email 15/15 menit, global login 300/15 menit, booking global 3.000/15 menit, lookup token 1.000/15 menit. `ponytail:` batas global sesuai deployment satu instance lokal; sebelum trafik publik besar gunakan IP dari reverse proxy terpercaya dan kebijakan per-company. Jangan mempercayai X-Forwarded-For langsung dari internet. Tidak ada penjadwalan pewawancara individual.
+**Responses** (from a form card) shows totals, the completion rate, search, a Partial/Completed filter, each response with the question it stopped at or the ending it reached, CSV export, and deletion of individual responses. Answers to questions that were later removed stay visible.
 
-## Permission dan endpoint
+**Upload file** accepts one file per question, up to **5 MB (5,242,880 bytes)**: JPEG, JPG, PNG, SVG, PDF, MD, DOC, DOCX, XLSX, and CSV. The browser shows transfer percentage, then “Saving file” until the server confirms success. Moving back during a transfer requires confirmation; leaving or refreshing the page triggers the browser's warning. Upload can also be cancelled explicitly. Failed transfers can be retried by choosing the file again. The preview explains that uploads are available on the published form.
 
-Daftar permission lengkap di `lib/schema.ts` (`permissions`). Role Owner mendapat seluruh izin company, tidak mendapat Super Admin. Backend menolak ID lintas tenant walaupun diketahui pengguna.
+Files are private in `UPLOAD_DIR/form-files`; migration `008_form_files.sql` stores metadata tied to the company, form, and response. Migrations `009` and `010` add the final 30-day expiry policy. Files appear as downloadable links in Responses. **Download all files as ZIP** exports current attachments from every Partial and Completed response, independently of table filters, and requires `responses.export`. Individual downloads require `responses.read`. SVG and other formats download as attachments with `nosniff` and sandbox headers. Deleting a response deletes its metadata and files.
 
-| Endpoint | Fungsi / izin |
-|---|---|
-| GET `/api/health/live`, `/api/health/ready` | Kesehatan proses / koneksi DB |
-| GET `/api/auth/me` | Sesi dan daftar company yang dapat diakses |
-| POST `/api/auth/login`, `/logout`, `/activate` | Akses internal |
-| GET/POST `/api/platform/companies[/:id]` | CRUD lunak company; Super Admin |
-| GET/POST `/api/platform/users` | List pengguna / undang Super Admin |
-| POST `/api/platform/user/:id` | Reset, enable, disable pengguna |
-| GET `/api/platform/overview`, `/audit` | Ringkasan dan audit |
-| GET/POST `/api/platform/settings` | Nama platform, kontak, catatan email, batas upload |
-| GET `/api/companies/:cid` | Company aktif dan izin user |
-| GET `/api/companies/:cid/overview`, `/audit` | Ringkasan / audit.read |
-| GET/POST `/api/companies/:cid/roles[/:id]`; DELETE role | roles.read/create/update/delete |
-| GET/POST `/api/companies/:cid/members[/:id]` | members.read/invite/update; nonaktif juga members.remove |
-| GET/POST `/api/companies/:cid/campaigns[/:id]` | campaigns.read/create/update; publish/archive terpisah |
-| GET `/api/companies/:cid/slots?campaign=uuid` | slots.read |
-| POST `/api/companies/:cid/slots[/:id]` | slots.create/update/cancel |
-| GET `/api/companies/:cid/bookings?q=text[&export=1]` | bookings.read/export |
-| POST `/api/companies/:cid/bookings/:id` | bookings.update/cancel |
-| GET/POST `/api/companies/:cid/branding`, `/settings` | branding.read/update; settings.read/update |
-| POST `/api/companies/:cid/logo` | branding.update, multipart file |
-| GET/POST `/api/public/:company/:campaign` | Data published / submit booking |
-| GET `/api/success/:token` | Konfirmasi privat via token acak |
+Transfers stream to disk with a 5 MB byte counter, 120-second timeout, and at most four concurrent uploads per server process. ZIP generation streams one file at a time, uses uncompressed ZIP entries to reduce CPU load, and allows two concurrent exports per process. Busy requests return a retryable error. Cancelling a request releases resources and removes unfinished data. Attachments expire **30 days from upload**. The company Responses page shows a live countdown, each file’s remaining time, and a reminder to download before expiry. Expired files cannot be downloaded or included in ZIP; text answers and original file names remain saved. Indexed cleanup starts with the first API request and runs every minute while the server is running (up to 500 attachments per sweep); `npm run uploads:cleanup` also runs it manually. Superseded attachments are kept for seven days; crash leftovers and orphaned disk files are removed after 24 hours. Include the entire upload directory in backups.
 
-POST update memakai ID pada path. Seluruh request/response JSON kecuali upload dan ekspor. `lib/schema.ts` mendefinisikan schema payload. Company-owned rows selalu memiliki company_id. Form fields, answers, branding dan success disimpan JSONB untuk menghindari tabel yang tidak perlu, dengan versi/constraint relasional.
+Permissions: `forms.read`, `forms.create`, `forms.update`, `forms.publish`, `forms.archive`, `responses.read`, `responses.export`, and `responses.delete`. Migration `005_form_permissions.sql` gives existing roles the form permission that matches what they already hold for calendars and bookings.
 
-## Operasi, update, rollback
+## Installation and operations
 
-Startup service existing `pm2-oem.service` telah terpasang dan enabled; tidak diubah. Jangan gunakan `pm2 restart all` / `pm2 delete all`. Konfigurasi aplikasi mengikat **127.0.0.1:3210** supaya tidak terbuka tanpa HTTPS.
+Node.js 22+ and PostgreSQL are required. For a new installation, copy `.env.example` to `.env`, configure the database and application origin, then run:
 
-- Readiness: `curl http://localhost:3210/api/health/ready`.
-- Log: `pm2 logs auto-audit-interview --lines 50` (jangan bagikan data sensitif).
-- Restart hanya aplikasi ini: `pm2 restart auto-audit-interview --update-env`.
-- Rotasi log: timer user `auto-audit-interview-logrotate.timer`, 14 arsip harian / maksimum 10 MB, hanya log aplikasi ini. Timer memakai `scripts/logrotate.conf`.
-- Update: backup terlebih dahulu → `npm ci` → `npm run migrate` → `npm test` → `npm run build` → restart hanya aplikasi ini → readiness dan uji booking. Build dalam folder rilis terpisah direkomendasikan ketika sudah menerima trafik publik.
-- Rollback aplikasi: kembalikan source + lockfile rilis sebelumnya, `npm ci`, build, restart proses ini. Migration destruktif harus dirancang terpisah dan tidak otomatis dibalik. Untuk rollback data, restore backup ke database baru, verifikasi, lalu ganti DATABASE_URL dan restart; jangan overwrite database aktif tanpa persetujuan pemilik data.
+```sh
+npm ci
+npm run migrate
+npm run bootstrap -- email@company.com
+npm test
+npm run build
+```
 
-Untuk akses internet, pasang reverse proxy HTTPS pada domain yang Anda kelola menuju `127.0.0.1:3210`, ubah APP_URL ke origin domain dan COOKIE_SECURE=true, restart. Jangan membuka port langsung. Domain dan TLS sudah aktif melalui tunnel di atas; SMTP belum dikonfigurasi.
+The existing deployment uses the dedicated database and role `auto_audit_interview`, persistent uploads at `/home/oem/.local/share/auto-audit-interview/uploads`, and PM2 process `auto-audit-interview`. These infrastructure identifiers are retained for compatibility. Do not rerun `scripts/provision.mjs` against an existing installation.
 
-## Backup dan restore
+Cloudflare Tunnel `n8n-autoaudit` forwards the public hostname to `127.0.0.1:3210`. `.env` uses the HTTPS public application origin and Secure session cookies. The application listens only on loopback. SMTP is not configured; invitation links can be shared manually.
 
-`node --env-file=.env scripts/backup.mjs` membuat dump PostgreSQL format custom serta arsip upload di `/home/oem/.local/share/auto-audit-interview/backups/<timestamp>`. Hak akses owner-only; backup memuat data pribadi. Salin ke media terpisah sesuai kebijakan perusahaan. `.env` tidak masuk backup; simpan credential secara terpisah.
+Before updating, create a backup with `node --env-file=.env scripts/backup.mjs`. Apply numbered migrations with `npm run migrate`, run checks, build, then restart only this application. `npm run build` replaces the files the running process serves, so restart straight after it; to check a build without touching the live one, build a copy of the project in another directory.
 
-`node scripts/restore-check.mjs /path/database.dump` membuat database uji sementara, restore menggunakan role terbatas, memeriksa tabel, lalu menghapus hanya database uji yang dibuatnya.
+```sh
+/home/oem/.npm-global/bin/pm2 restart auto-audit-interview --update-env
+curl http://127.0.0.1:3210/api/health/ready
+```
 
-Restore nyata: buat database **baru** owner role aplikasi, `pg_restore --no-owner --no-acl --exit-on-error` ke database baru dengan user berwenang; ekstrak uploads.tar.gz ke direktori persisten baru; ubah DATABASE_URL dan UPLOAD_DIR; jalankan readiness serta uji login/booking. Setelah diverifikasi, tentukan cutover. Script restore-check tidak menyentuh database aktif.
+To try changes next to the live process, run a development server on another port with its own origin: `APP_URL=http://localhost:3211 COOKIE_SECURE=false npx next dev -H 127.0.0.1 -p 3211`. It writes to `.next/dev`, leaves the live build alone, and uses the same database, so use temporary test data and remove it afterwards.
 
-## Pengujian dan aset
+Backups include a PostgreSQL dump and persistent uploads. `scripts/restore-check.mjs` verifies a dump in a separate temporary database. Restore production data into a new database and verify it before changing the application connection. Preserve `.env` separately from backups.
 
-`npm test`: pengujian PostgreSQL nyata dengan data sementara yang dibersihkan setelah selesai. Meliputi concurrency, idempotency, isolasi tenant, custom role, quota, cancel, move, form version, WhatsApp dan CSRF origin. `npm run typecheck` dan `npm run build` memeriksa TypeScript/production build. Hasil aktual dicatat di `TEST-RESULTS.md`.
+## Validation
 
-Logo Auto Audit berasal dari file yang diberikan user. Animasi lokal `public/pulse.json` dibuat khusus untuk aplikasi (MIT), lazy-loaded oleh `@lottiefiles/dotlottie-react`, menghormati reduced motion dan mempunyai ikon statis. Shine Border dari Magic UI, MIT, lisensi di `public/MAGICUI-LICENSE.txt`. Dokumentasi referensi: https://heroui.com/en/docs/react/getting-started/frameworks dan https://magicui.design/docs/components/shine-border.
+`npm test` runs integration tests against PostgreSQL with temporary data that is cleaned up. Coverage includes registration validation, concurrent duplicate contact details, approval/rejection, scoped company access, direct password reset, legacy Owner setup, booking capacity, idempotency, tenant isolation, role permissions, form versions, and request origin checks. For forms it covers definition rules, logic paths, tenant isolation and permissions, partial saving, submission validation and replay, closed forms, response listing, export and deletion, and image uploads.
 
-Di luar v1 sesuai brief: integrasi kalender, upload CV, pembagian pewawancara, dan pengiriman WhatsApp otomatis. Email otomatis belum diaktifkan; undangan manual berfungsi tanpa SMTP.
+`npm run typecheck` and `npm run build` verify the TypeScript source and production build. Current results are recorded in `TEST-RESULTS.md`.
 
-Catatan audit dependensi: masih ada advisory braces pada rantai build Tailwind 3; hanya pola konfigurasi lokal yang digunakan. Detail risiko, pengujian yang belum dilakukan, dan versi paket yang diperbarui ada di `TEST-RESULTS.md`.
+## UI assets
+
+- Auto Audit logo: transparent PNG edited through built-in imagegen; prompt and asset details are in `docs/logo-edit.txt`.
+- React Bits Micro: **LatticeLoader** for loading feedback and **HoldButton** for company rejection confirmation, downloaded from the official TypeScript registry and vendored under `components/reactbits`. License: `public/REACTBITS-LICENSE.txt` (MIT + Commons Clause).
+- Local Lottie animation: `public/pulse.json`, used for success and empty states, with a static icon for reduced motion.
+- All motion honors the device's reduced-motion preference.
+- Lucide icons and the existing Magic UI border component remain available.
+- The form builder uses dnd-kit (`@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`, MIT) for dragging blocks and answer options, including keyboard reordering.
+
+Internal database names such as `campaigns` and `interview_slots`, and legacy WhatsApp template variables, remain compatible with existing records. The interface uses general calendar and booking terminology. External calendar synchronization and automatic email or WhatsApp delivery are not implemented.

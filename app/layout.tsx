@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/ui";
 export const metadata: Metadata = {
-  title: "Auto Audit · Interview Scheduler",
+  title: "Auto Audit · Calendar & Booking",
   icons: { icon: "/favicon.svg" },
   description:
-    "Kelola gelombang interview, jadwal, dan peserta dalam satu tempat.",
+    "Manage calendars, appointments, and bookings in one shared workspace.",
 };
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="id">
+    <html lang="en">
       <body>
         <Providers>{children}</Providers>
       </body>

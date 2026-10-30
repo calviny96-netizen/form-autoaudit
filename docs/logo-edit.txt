@@ -1,0 +1,6 @@
+Tool: built-in image_gen.imagegen (imagegen skill), edit mode.
+Source: public/logo-auto-audit.png (original supplied logo).
+Output: public/logo-auto-audit.png (transparent RGBA PNG, alpha verified).
+
+Final prompt:
+Use case: background-extraction. Asset type: existing Auto Audit application logo. Edit target: the attached Auto Audit logo. Remove only the solid white background to produce a genuinely transparent PNG with alpha, including the gaps inside and around the letters. Preserve the exact existing blue/cyan arrow symbol, star shapes, gray lowercase "auto" and black lowercase "audit", their typography, proportions, layout and colors. No redesign, no added text, no shadow, no white rectangle or white halo. Keep the entire logo visible, clean edges and tight transparent margins.

@@ -1,0 +1,13 @@
+ALTER TABLE users ADD COLUMN phone text;
+CREATE UNIQUE INDEX users_phone_unique ON users(phone) WHERE phone IS NOT NULL;
+CREATE UNIQUE INDEX users_email_normalized_unique ON users(lower(email));
+ALTER TABLE users ADD COLUMN registration_status text NOT NULL DEFAULT 'approved' CHECK(registration_status IN ('pending','approved','rejected'));
+ALTER TABLE companies DROP CONSTRAINT companies_status_check;
+ALTER TABLE companies ADD CONSTRAINT companies_status_check CHECK(status IN ('active','inactive','archived','pending','rejected'));
+ALTER TABLE companies ADD COLUMN registered_by uuid REFERENCES users(id);
+ALTER TABLE companies ADD COLUMN reviewed_by uuid REFERENCES users(id);
+ALTER TABLE companies ADD COLUMN reviewed_at timestamptz;
+ALTER TABLE companies ADD COLUMN rejection_reason text NOT NULL DEFAULT '';
+ALTER TABLE sessions ADD COLUMN acting_company_id uuid REFERENCES companies(id) ON DELETE CASCADE;
+ALTER TABLE sessions ADD COLUMN acting_user_id uuid REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE sessions ADD CONSTRAINT sessions_acting_pair CHECK((acting_company_id IS NULL) = (acting_user_id IS NULL));

@@ -186,11 +186,11 @@ test("per-slot capacity, double submit and lost response replay", async () => {
   assert.deepEqual(await createBooking(cid, campaign, b), a);
   await assert.rejects(
     () => createBooking(cid, campaign, { ...b, name: "Changed" }),
-    /Permintaan berubah/,
+    /request changed/,
   );
   await assert.rejects(
     () => createBooking(cid, campaign, body(101, slot2)),
-    /kursi terakhir/,
+    /filled up/,
   );
 });
 test("failed move is atomic and cancellation is repeatable", async () => {
@@ -199,7 +199,7 @@ test("failed move is atomic and cancellation is repeatable", async () => {
   ).rows[0];
   await assert.rejects(
     () => changeBooking(cid, b.id, { slot_id: slot2 }, uid),
-    /kursi terakhir/,
+    /filled up/,
   );
   assert.equal(
     (await pool.query("SELECT slot_id FROM bookings WHERE id=$1", [b.id]))
@@ -224,7 +224,7 @@ test("closed company/campaign rejects stale browser form", async () => {
   await pool.query("UPDATE companies SET status='inactive' WHERE id=$1", [cid]);
   await assert.rejects(
     () => createBooking(cid, campaign, body(500)),
-    /tidak aktif/,
+    /inactive/,
   );
   await pool.query("UPDATE companies SET status='active' WHERE id=$1", [cid]);
   await pool.query("UPDATE campaigns SET status='closed' WHERE id=$1", [
@@ -232,7 +232,7 @@ test("closed company/campaign rejects stale browser form", async () => {
   ]);
   await assert.rejects(
     () => createBooking(cid, campaign, body(501)),
-    /ditutup/,
+    /closed/,
   );
   await pool.query("UPDATE campaigns SET status='published' WHERE id=$1", [
     campaign,
@@ -410,4 +410,76 @@ test("local campaign creation stays allowed after public deployment, but foreign
     ["http://localhost:3210", "calendar.dbautoaudit.stream"],
     ["null", "localhost:3210"],
   ]) assert.equal((await request(origin, host, "rejected")).status, 403);
+});
+
+test("calendar contact fields are configurable and slugs are automatic and admin managed", async () => {
+  const create = async (data: any) => {
+    const response = await req(`companies/${cid}/campaigns`, "POST", data);
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
+  };
+  const first = await create({ title: "Flexible Calendar", status: "published", slug: "manual-slug" });
+  assert.equal(first.slug, "flexible-calendar");
+  assert.deepEqual(first.standard_fields, { name: { enabled: true, required: true }, email: { enabled: true, required: true }, phone: { enabled: true, required: true } });
+  const duplicate = await create({ title: "Flexible Calendar" });
+  assert.equal(duplicate.slug, "flexible-calendar-2");
+  const renamed = await (await req(`companies/${cid}/campaigns/${first.id}`, "POST", { ...first, title: "Renamed", slug: "unauthorized" })).json();
+  assert.equal(renamed.slug, first.slug);
+  const s = (await pool.query("INSERT INTO interview_slots(company_id,campaign_id,starts_at,ends_at,capacity) VALUES($1,$2,now()+interval '60 days',now()+interval '60 days 1 hour',10) RETURNING id", [cid, first.id])).rows[0];
+  const blank = () => ({ slot_id: s.id, idempotency_key: randomUUID(), consent: true, answers: {} });
+  await assert.rejects(() => createBooking(cid, first.id, blank()), /Full name is required/);
+  const disabled = { name: { enabled: false, required: true }, email: { enabled: false, required: true }, phone: { enabled: false, required: true } };
+  assert.equal((await req(`companies/${cid}/campaigns/${first.id}`, "POST", { ...renamed, duplicate_rule: { ...renamed.duplicate_rule, enabled: false }, standard_fields: disabled })).status, 200);
+  const a = await createBooking(cid, first.id, blank());
+  const b = await createBooking(cid, first.id, blank());
+  assert.notEqual(a.token, b.token);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM bookings WHERE campaign_id=$1 AND email=''", [first.id])).rows[0].n, 2);
+  const optional = { name: { enabled: true, required: false }, email: { enabled: true, required: false }, phone: { enabled: true, required: false } };
+  await req(`companies/${cid}/campaigns/${first.id}`, "POST", { ...renamed, standard_fields: optional });
+  await createBooking(cid, first.id, blank());
+  await assert.rejects(() => createBooking(cid, first.id, { ...blank(), email: "not-email" }));
+  const emailBooking = { ...blank(), email: "optional-contact@example.test" };
+  await createBooking(cid, first.id, emailBooking);
+  await assert.rejects(() => createBooking(cid, first.id, { ...emailBooking, idempotency_key: randomUUID() }), /active booking/);
+  assert.equal((await req(`platform/companies/${cid}/links`)).status, 403);
+  assert.equal((await req(`platform/companies/${cid}/links`, "POST", { id: first.id, kind: "calendar", slug: "private-custom" })).status, 403);
+  await pool.query("UPDATE users SET super_admin=true WHERE id=$1", [uid]);
+  try {
+    assert.equal((await req(`platform/companies/${cid}/links`)).status, 200);
+    assert.equal((await req(`platform/companies/${cid}/links`, "POST", { id: first.id, kind: "calendar", slug: "custom-calendar" })).status, 200);
+    assert.equal((await req(`platform/companies/${cid}/links`, "POST", { id: duplicate.id, kind: "calendar", slug: "custom-calendar" })).status, 409);
+    assert.equal((await pool.query("SELECT slug FROM campaigns WHERE id=$1", [first.id])).rows[0].slug, "custom-calendar");
+  } finally { await pool.query("UPDATE users SET super_admin=false WHERE id=$1", [uid]); }
+});
+
+test("calendar duplicate rules support phone/date AND, custom errors, disabled rules, and concurrency", async () => {
+  const rule = { enabled: true, fields: ["phone", "booking_date"], match: "all", message: "You have already booked this day." };
+  const response = await req(`companies/${cid}/campaigns`, "POST", { title: "Duplicate policy", status: "published", duplicate_rule: rule });
+  assert.equal(response.status, 200, await response.clone().text());
+  let calendar = await response.json();
+  const slots = (await pool.query("INSERT INTO interview_slots(company_id,campaign_id,starts_at,ends_at,capacity) VALUES($1,$2,date_trunc('day',now())+interval '70 days 2 hours',date_trunc('day',now())+interval '70 days 3 hours',10),($1,$2,date_trunc('day',now())+interval '71 days 2 hours',date_trunc('day',now())+interval '71 days 3 hours',10) RETURNING id", [cid, calendar.id])).rows;
+  const input = (email: string, chosen = slots[0].id) => ({ slot_id: chosen, idempotency_key: randomUUID(), name: "Duplicate QA", email, phone: "081234567899", answers: {}, consent: true });
+  const first = input("dup-first@example.test");
+  const confirmed = await createBooking(cid, calendar.id, first);
+  assert.deepEqual(await createBooking(cid, calendar.id, first), confirmed);
+  await assert.rejects(() => createBooking(cid, calendar.id, { ...input("dup-second@example.test"), phone: "+62 812 3456 7899" }), /You have already booked this day/);
+  await createBooking(cid, calendar.id, input("dup-first@example.test", slots[1].id)); // Same phone/email, different day: AND permits it.
+  calendar = await (await req(`companies/${cid}/campaigns/${calendar.id}`, "POST", { ...calendar, duplicate_rule: { ...rule, match: "any" } })).json();
+  await assert.rejects(() => createBooking(cid, calendar.id, { ...input("dup-third@example.test"), phone: "081234567888" }), /already booked this day/); // Day alone matches.
+  calendar = await (await req(`companies/${cid}/campaigns/${calendar.id}`, "POST", { ...calendar, duplicate_rule: { ...rule, enabled: false } })).json();
+  await createBooking(cid, calendar.id, input("dup-first@example.test")); // Rule disabled permits repeated email, phone and day.
+  calendar = await (await req(`companies/${cid}/campaigns/${calendar.id}`, "POST", { ...calendar, duplicate_rule: { ...rule, fields: ["email"], match: "any", message: "Custom duplicate email message" } })).json();
+  const parallel = await Promise.allSettled([createBooking(cid, calendar.id, input("parallel-dup@example.test")), createBooking(cid, calendar.id, input("parallel-dup@example.test"))]);
+  assert.equal(parallel.filter(r => r.status === "fulfilled").length, 1);
+  assert.equal(parallel.filter(r => r.status === "rejected").length, 1);
+  const row = (await pool.query("SELECT id FROM bookings WHERE campaign_id=$1 AND email=$2", [calendar.id, "parallel-dup@example.test"])).rows[0];
+  await changeBooking(cid, row.id, { status: "cancelled" }, uid);
+  await createBooking(cid, calendar.id, input("parallel-dup@example.test"));
+  assert.equal((await req(`companies/${cid}/campaigns/${calendar.id}`, "POST", { ...calendar, duplicate_rule: { ...rule, fields: [] } })).status, 400);
+  const dateField = { id: "requested-date", label: "Requested date", type: "date", required: false, options: [] };
+  const updated = await req(`companies/${cid}/campaigns/${calendar.id}`, "POST", { ...calendar, fields: [dateField], duplicate_rule: { ...rule, fields: ["field:requested-date"], message: "That requested date is already registered." } });
+  assert.equal(updated.status, 200);
+  await createBooking(cid, calendar.id, { ...input("custom-date-one@example.test"), answers: { "requested-date": "2030-03-10" } });
+  await assert.rejects(() => createBooking(cid, calendar.id, { ...input("custom-date-two@example.test", slots[1].id), answers: { "requested-date": "2030-03-10" } }), /requested date is already registered/);
+
 });

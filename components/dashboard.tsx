@@ -15,6 +15,8 @@ import {
   ModalFooter,
   dateTime,
   MotionIcon,
+  Loading,
+  permissionLabel,
 } from "./ui";
 import {
   LayoutDashboard,
@@ -34,7 +36,9 @@ import {
   Menu,
   Clock3,
   CheckCircle2,
+  ClipboardList,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import {
   Checkbox,
   Pagination,
@@ -46,8 +50,19 @@ import {
   TableCell,
 } from "@heroui/react";
 import { permissions } from "@/lib/schema";
+import { PlatformDashboard } from "./platform";
 import { CampaignEditor, SlotManager } from "./editors";
 import { SuccessSettings, BrandingSettings } from "./settings";
+import { FormsGrid, NewFormModal, FormResponses } from "./forms";
+// The builder and its drag-and-drop code load only when a form is opened.
+const FormBuilder = dynamic(() => import("./form-builder"), {
+  ssr: false,
+  loading: () => (
+    <div className="studio loading">
+      <Loading label="Opening form builder" />
+    </div>
+  ),
+});
 const companyDefault = {
   name: "",
   slug: "",
@@ -56,6 +71,9 @@ const companyDefault = {
   status: "active",
 };
 export function Dashboard({ session }: { session: any }) {
+  return session.user.super_admin ? <PlatformDashboard session={session} /> : <CompanyDashboard session={session} />;
+}
+function CompanyDashboard({ session }: { session: any }) {
   const [companies, setCompanies] = useState(session.companies);
   const [cid, setCid] = useState("");
   const [company, setCompany] = useState<any>();
@@ -68,6 +86,9 @@ export function Dashboard({ session }: { session: any }) {
   const [edit, setEdit] = useState<any>();
   const [campaign, setCampaign] = useState<any>();
   const [slotCampaign, setSlotCampaign] = useState<any>();
+  const [form, setForm] = useState<any>();
+  const [formResponses, setFormResponses] = useState<any>();
+  const [creatingForm, setCreatingForm] = useState(false);
   const [roles, setRoles] = useState<any[]>([]);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -138,32 +159,33 @@ export function Dashboard({ session }: { session: any }) {
   }, [cid, tab, tick, query]);
   const nav = platform
     ? [
-        ["overview", "Ringkasan", LayoutDashboard],
+        ["overview", "Overview", LayoutDashboard],
         ["companies", "Companies", Building2],
-        ["users", "Pengguna platform", Users],
-        ["health", "Status layanan", Activity],
+        ["users", "Platform users", Users],
+        ["health", "Service status", Activity],
         ["audit", "Audit log", ShieldCheck],
-        ["settings", "Pengaturan platform", Settings],
+        ["settings", "Platform settings", Settings],
       ]
     : [
-        ["overview", "Ringkasan", LayoutDashboard],
-        ["campaigns", "Gelombang interview", CalendarDays],
-        ["bookings", "Peserta", Users],
-        ["members", "Anggota company", Users],
-        ["roles", "Role & izin", ShieldCheck],
+        ["overview", "Overview", LayoutDashboard],
+        ["campaigns", "Calendars", CalendarDays],
+        ["forms", "Forms", ClipboardList],
+        ["bookings", "Bookings", Users],
+        ["members", "Team members", Users],
+        ["roles", "Roles & permissions", ShieldCheck],
         ["branding", "Branding", Palette],
-        ["settings", "Halaman sukses", Settings],
+        ["settings", "Confirmation page", Settings],
         ["audit", "Audit log", Activity],
       ].filter(([key]) => key === "overview" || can(key + ".read"));
   const title =
-    (nav.find(([key]) => key === tab)?.[1] as string) ?? "Ruang kerja";
+    (nav.find(([key]) => key === tab)?.[1] as string) ?? "Workspace";
   async function save(url: string, data: any) {
     setBusy(true);
     try {
       const result = await api(url, "POST", data);
       setEdit(undefined);
       if (result.link) setLink(result.link);
-      setNotice("Perubahan berhasil disimpan.");
+      setNotice("Changes saved.");
       reload();
       if (platform) setCompanies((await api("auth/me")).companies);
       return result;
@@ -189,22 +211,25 @@ export function Dashboard({ session }: { session: any }) {
     setTab("overview");
     setCampaign(undefined);
     setSlotCampaign(undefined);
+    setForm(undefined);
+    setFormResponses(undefined);
   };
   return (
-    <div className="dashboard">
+    <>
+    <div className="dashboard" inert={!!form}>
       <aside className={"sidebar " + (mobile ? "visible" : "")}>
         <a className="brand" href="/">
           <img src="/logo-auto-audit.png" alt="Auto Audit" width="150" />
         </a>
-        <span className="product-label">INTERVIEW SCHEDULER</span>
+        <span className="product-label">CALENDAR & BOOKING</span>
         <div className="workspace-select">
           <SelectField
-            label="Ruang kerja aktif"
+            label="Active workspace"
             value={platform ? "platform" : cid}
             onChange={(v: string) => switchCompany(v === "platform" ? "" : v)}
             options={[
               ...(session.user.super_admin
-                ? [{ value: "platform", label: "Pengelola platform" }]
+                ? [{ value: "platform", label: "Platform administrator" }]
                 : []),
               ...companies.map((c: any) => ({ value: c.id, label: c.name })),
             ]}
@@ -220,6 +245,7 @@ export function Dashboard({ session }: { session: any }) {
                 setTab(key);
                 setCampaign(undefined);
                 setSlotCampaign(undefined);
+                setFormResponses(undefined);
                 setMobile(false);
               }}
             >
@@ -234,7 +260,7 @@ export function Dashboard({ session }: { session: any }) {
             <div>
               <strong>{session.user.name}</strong>
               <small>
-                {platform ? "Super Admin" : (company?.name ?? "Anggota")}
+                {platform ? "Super Admin" : (company?.name ?? "Member")}
               </small>
             </div>
           </div>
@@ -247,17 +273,18 @@ export function Dashboard({ session }: { session: any }) {
               location.href = "/";
             }}
           >
-            Keluar
+            Sign out
           </Button>
         </div>
       </aside>
       <div className="dashboard-main">
+        {session.user.impersonator_id && <div className="impersonation-banner"><span>Viewing {company?.name || "company workspace"} as Company Owner</span><Button size="sm" variant="flat" onPress={async () => { await api("auth/stop-impersonation", "POST"); location.href = "/"; }}>Return to Super Admin</Button></div>}
         <header className="topbar">
           <Button
             isIconOnly
             variant="light"
             className="mobile-menu"
-            aria-label="Buka menu"
+            aria-label="Open menu"
             onPress={() => setMobile(!mobile)}
           >
             <Menu />
@@ -269,7 +296,7 @@ export function Dashboard({ session }: { session: any }) {
           </div>
           <div className="row">
             <span className="today">
-              {new Date().toLocaleDateString("id-ID", {
+              {new Date().toLocaleDateString("en-GB", {
                 day: "numeric",
                 month: "long",
                 year: "numeric",
@@ -301,38 +328,51 @@ export function Dashboard({ session }: { session: any }) {
                 reload();
               }}
             />
+          ) : formResponses ? (
+            <FormResponses
+              cid={cid}
+              company={company}
+              form={formResponses}
+              can={can}
+              onClose={() => {
+                setFormResponses(undefined);
+                reload();
+              }}
+            />
           ) : (
             <>
               <div className="page-heading">
                 <div>
                   <span className="eyebrow">
-                    {platform ? "PENGELOLA PLATFORM" : "RUANG KERJA COMPANY"}
+                    {platform ? "PLATFORM ADMINISTRATION" : "COMPANY WORKSPACE"}
                   </span>
                   <h1>
                     {tab === "overview"
-                      ? "Semua terjadwal, semua terkendali."
+                      ? "Your calendar, at a glance."
                       : title}
                   </h1>
                   <p className="muted">
                     {tab === "overview"
-                      ? "Pantau aktivitas interview dan atur langkah berikutnya."
+                      ? "Keep track of bookings and plan what comes next."
                       : (
                           {
-                            companies: "Kelola company dan ruang kerja mereka.",
+                            companies: "Manage companies and their workspaces.",
                             campaigns:
-                              "Atur gelombang, jadwal, dan formulir pendaftaran.",
+                              "Manage calendars, time slots, and booking forms.",
+                            forms:
+                              "Build interactive forms and review every response.",
                             bookings:
-                              "Temukan peserta dan kelola status interview.",
+                              "Find customers and manage their bookings.",
                             members:
-                              "Kelola siapa saja yang dapat mengakses company.",
-                            roles: "Berikan akses sesuai tanggung jawab.",
+                              "Manage access to your company workspace.",
+                            roles: "Give each team member the access they need.",
                             audit:
-                              "Riwayat aktivitas dan perubahan yang tercatat.",
-                            health: "Kondisi layanan aplikasi saat ini.",
+                              "Review recorded activity and changes.",
+                            health: "Check the current service status.",
                             branding:
-                              "Identitas company pada halaman pendaftaran.",
+                              "Customize your company booking page.",
                             settings:
-                              "Atur pengalaman setelah pendaftaran berhasil.",
+                              "Customize the booking confirmation experience.",
                           } as any
                         )[tab]}
                   </p>
@@ -345,7 +385,7 @@ export function Dashboard({ session }: { session: any }) {
                       setEdit({ ...companyDefault, kind: "company" })
                     }
                   >
-                    Company baru
+                    New company
                   </Button>
                 )}
                 {tab === "campaigns" && can("campaigns.create") && (
@@ -354,7 +394,16 @@ export function Dashboard({ session }: { session: any }) {
                     startContent={<Plus size={18} />}
                     onPress={() => setCampaign({})}
                   >
-                    Gelombang baru
+                    New calendar
+                  </Button>
+                )}
+                {tab === "forms" && can("forms.create") && (
+                  <Button
+                    color="primary"
+                    startContent={<Plus size={18} />}
+                    onPress={() => setCreatingForm(true)}
+                  >
+                    New form
                   </Button>
                 )}
                 {["members", "roles", "users"].includes(tab) &&
@@ -377,29 +426,29 @@ export function Dashboard({ session }: { session: any }) {
                         })
                       }
                     >
-                      {tab === "roles" ? "Role baru" : "Undang pengguna"}
+                      {tab === "roles" ? "New role" : "Invite user"}
                     </Button>
                   )}
               </div>
               {loading ? (
-                <div className="card empty">Memuat data…</div>
+                <div className="card empty"><Loading label="Loading your calendar" /></div>
               ) : tab === "overview" ? (
                 <>
                   <div className="stats-grid">
                     {[
                       [
-                        platform ? "Company aktif" : "Gelombang aktif",
+                        platform ? "Active companies" : "Published calendars",
                         platform ? stats.companies : stats.campaigns,
                         Building2,
                       ],
                       [
-                        platform ? "Gelombang aktif" : "Total jadwal",
+                        platform ? "Published calendars" : "Time slots",
                         platform ? stats.campaigns : stats.slots,
                         CalendarDays,
                       ],
-                      ["Peserta terdaftar", stats.bookings, Users],
+                      ["Confirmed bookings", stats.bookings, Users],
                       [
-                        platform ? "Total jadwal" : "Total kapasitas",
+                        platform ? "Time slots" : "Total capacity",
                         platform ? stats.slots : stats.capacity,
                         Clock3,
                       ],
@@ -411,7 +460,7 @@ export function Dashboard({ session }: { session: any }) {
                         </div>
                         <strong>{n ?? 0}</strong>
                         <small>
-                          Seluruh {platform ? "platform" : "company"}
+                          {platform ? "Platform total" : "Company total"}
                         </small>
                       </div>
                     ))}
@@ -419,17 +468,17 @@ export function Dashboard({ session }: { session: any }) {
                   <div className="overview-band">
                     <div>
                       <span className="eyebrow">
-                        RUANG UNTUK KESEMPATAN BARU
+                        MAKE TIME FOR WHAT MATTERS
                       </span>
                       <h2>
                         {platform
-                          ? "Satu platform, banyak tim."
-                          : "Siapkan interview berikutnya."}
+                          ? "One platform. Every team."
+                          : "Plan your next booking."}
                       </h2>
                       <p>
                         {platform
-                          ? "Setiap company punya jadwal, tim, dan identitasnya sendiri."
-                          : "Mulai dari gelombang, atur sesi, lalu bagikan tautan pendaftaran."}
+                          ? "Each company has its own calendar, team, and identity."
+                          : "Create a calendar, add time slots, and share your booking link."}
                       </p>
                       <Button
                         color="primary"
@@ -438,7 +487,7 @@ export function Dashboard({ session }: { session: any }) {
                           setTab(platform ? "companies" : "campaigns")
                         }
                       >
-                        {platform ? "Kelola companies" : "Kelola gelombang"}
+                        {platform ? "Manage companies" : "Manage calendars"}
                       </Button>
                     </div>
                     <CalendarDays className="band-icon" size={98} />
@@ -446,7 +495,7 @@ export function Dashboard({ session }: { session: any }) {
                   <div className="card">
                     <div className="section-title">
                       <h2>
-                        {platform ? "Company terbaru" : "Gelombang interview"}
+                        {platform ? "Recent companies" : "Calendars"}
                       </h2>
                       <Button
                         variant="light"
@@ -454,21 +503,21 @@ export function Dashboard({ session }: { session: any }) {
                           setTab(platform ? "companies" : "campaigns")
                         }
                       >
-                        Lihat semua
+                        View all
                       </Button>
                     </div>
                     {!rows.length ? (
                       <Empty
                         text={
                           platform
-                            ? "Mulai dengan company pertama"
-                            : "Belum ada gelombang interview"
+                            ? "Create your first company"
+                            : "No calendars yet"
                         }
                       >
                         <p className="muted">
                           {platform
-                            ? "Buat company, kemudian undang Owner untuk mulai mengelola jadwal."
-                            : "Buat gelombang baru untuk membuka pendaftaran peserta."}
+                            ? "Create a company and invite an owner to manage its calendar."
+                            : "Create a calendar to start accepting bookings."}
                         </p>
                       </Empty>
                     ) : (
@@ -482,9 +531,9 @@ export function Dashboard({ session }: { session: any }) {
                               <div>
                                 <strong>{r.name ?? r.title}</strong>
                                 <small>
-                                  {r.bookings} peserta ·{" "}
+                                  {r.bookings} {Number(r.bookings) === 1 ? "booking" : "bookings"} ·{" "}
                                   {r.slots ?? r.campaigns}{" "}
-                                  {platform ? "jadwal" : "sesi"}
+                                  {platform ? "time slots" : "slots"}
                                 </small>
                               </div>
                             </div>
@@ -492,7 +541,7 @@ export function Dashboard({ session }: { session: any }) {
                               <Badge value={r.status} />
                               <Button
                                 isIconOnly
-                                aria-label="Buka"
+                                aria-label="Open"
                                 variant="light"
                                 onPress={() =>
                                   platform
@@ -524,15 +573,15 @@ export function Dashboard({ session }: { session: any }) {
                       <div className="company-metrics">
                         <div>
                           <b>{c.campaigns}</b>
-                          <small>Gelombang</small>
+                          <small>Calendar</small>
                         </div>
                         <div>
                           <b>{c.bookings}</b>
-                          <small>Peserta</small>
+                          <small>Customers</small>
                         </div>
                         <div>
                           <b>{c.capacity}</b>
-                          <small>Kapasitas</small>
+                          <small>Capacity</small>
                         </div>
                       </div>
                       <div className="row">
@@ -541,7 +590,7 @@ export function Dashboard({ session }: { session: any }) {
                           variant="flat"
                           onPress={() => switchCompany(c.id)}
                         >
-                          Buka company
+                          Open company
                         </Button>
                         <Button
                           variant="light"
@@ -552,7 +601,7 @@ export function Dashboard({ session }: { session: any }) {
                       </div>
                     </div>
                   ))}
-                  {!rows.length && <Empty text="Belum ada company" />}
+                  {!rows.length && <Empty text="No companies yet" />}
                 </div>
               ) : tab === "campaigns" ? (
                 <div className="company-grid">
@@ -564,10 +613,10 @@ export function Dashboard({ session }: { session: any }) {
                       </div>
                       <h2>{p.title}</h2>
                       <p className="muted clamp">
-                        {p.description || "Deskripsi belum ditambahkan."}
+                        {p.description || "No description added yet."}
                       </p>
                       <p className="muted">
-                        {p.slots} sesi · {p.bookings} peserta · {p.timezone}
+                        {p.slots} {Number(p.slots) === 1 ? "slot" : "slots"} · {p.bookings} {Number(p.bookings) === 1 ? "booking" : "bookings"} · {p.timezone}
                       </p>
                       <div className="row wrap">
                         <Button
@@ -575,7 +624,7 @@ export function Dashboard({ session }: { session: any }) {
                           variant="flat"
                           onPress={() => setSlotCampaign(p)}
                         >
-                          Kelola jadwal
+                          Manage time slots
                         </Button>
                         {can("campaigns.update") && (
                           <Button
@@ -587,13 +636,13 @@ export function Dashboard({ session }: { session: any }) {
                         )}
                         <Button
                           isIconOnly
-                          aria-label="Salin link pendaftaran"
+                          aria-label="Copy booking link"
                           variant="light"
                           onPress={async () => {
                             await navigator.clipboard.writeText(
                               `${location.origin}/b/${company.slug}/${p.slug}`,
                             );
-                            setNotice("Link pendaftaran disalin.");
+                            setNotice("Booking link copied.");
                           }}
                         >
                           <Copy size={17} />
@@ -603,7 +652,7 @@ export function Dashboard({ session }: { session: any }) {
                           href={`/b/${company.slug}/${p.slug}`}
                           target="_blank"
                           isIconOnly
-                          aria-label="Buka halaman publik"
+                          aria-label="Open booking page"
                           variant="light"
                         >
                           <ArrowUpRight size={18} />
@@ -616,20 +665,31 @@ export function Dashboard({ session }: { session: any }) {
                               setCampaign({
                                 ...p,
                                 id: undefined,
-                                title: p.title + " (salinan)",
-                                slug: p.slug + "-salinan",
+                                title: p.title + " (copy)",
+                                slug: p.slug + "-copy",
                                 status: "draft",
                               })
                             }
                           >
-                            Salin konfigurasi
+                            Duplicate calendar
                           </Button>
                         )}
                       </div>
                     </div>
                   ))}
-                  {!rows.length && <Empty text="Belum ada gelombang" />}
+                  {!rows.length && <Empty text="No calendars yet" />}
                 </div>
+              ) : tab === "forms" ? (
+                <FormsGrid
+                  cid={cid}
+                  company={company}
+                  rows={rows}
+                  can={can}
+                  setNotice={setNotice}
+                  reload={reload}
+                  onEdit={setForm}
+                  onResponses={setFormResponses}
+                />
               ) : tab === "branding" ? (
                 <BrandingSettings cid={cid} editable={can("branding.update")} />
               ) : tab === "settings" ? (
@@ -644,17 +704,16 @@ export function Dashboard({ session }: { session: any }) {
                     <CheckCircle2 color="#15803d" />
                     <h2>
                       {stats.status === "ready"
-                        ? "Layanan siap digunakan"
-                        : "Memeriksa layanan"}
+                        ? "Service is ready"
+                        : "Checking service"}
                     </h2>
                   </div>
-                  <p>Server aplikasi dan koneksi PostgreSQL merespons.</p>
+                  <p>The application and database are responding.</p>
                   <p className="muted">
-                    Diperiksa saat halaman dimuat. Gunakan tombol untuk
-                    memeriksa kembali.
+                    Checked when this page loaded. Refresh to check again.
                   </p>
                   <Button color="primary" variant="flat" onPress={reload}>
-                    Periksa kembali
+                    Check again
                   </Button>
                 </div>
               ) : (
@@ -662,10 +721,10 @@ export function Dashboard({ session }: { session: any }) {
                   {tab === "bookings" && (
                     <div className="section-title">
                       <Field
-                        label="Cari peserta"
+                        label="Search customers"
                         value={query}
                         onChange={setQuery}
-                        placeholder="Nama, email, WhatsApp, kode"
+                        placeholder="Name, email, phone, booking code"
                         startContent={<Search size={17} />}
                       />
                       {can("bookings.export") && (
@@ -675,7 +734,7 @@ export function Dashboard({ session }: { session: any }) {
                           variant="bordered"
                           startContent={<Download size={17} />}
                         >
-                          Ekspor CSV
+                          Export CSV
                         </Button>
                       )}
                     </div>
@@ -685,17 +744,17 @@ export function Dashboard({ session }: { session: any }) {
                       <thead>
                         <tr>
                           {(tab === "audit"
-                            ? ["Waktu", "Aktivitas", "Oleh", "Referensi"]
+                            ? ["Time", "Activity", "By", "Reference"]
                             : tab === "bookings"
                               ? [
-                                  "Peserta",
-                                  "Gelombang & jadwal",
+                                  "Customers",
+                                  "Calendar & time",
                                   "Status",
-                                  "Tindakan",
+                                  "Actions",
                                 ]
                               : tab === "roles"
-                                ? ["Role", "Hak akses", "Tindakan"]
-                                : ["Pengguna", "Role", "Status", "Tindakan"]
+                                ? ["Role", "Permissions", "Actions"]
+                                : ["Pengguna", "Role", "Status", "Actions"]
                           ).map((x) => (
                             <th key={x}>{x}</th>
                           ))}
@@ -708,7 +767,7 @@ export function Dashboard({ session }: { session: any }) {
                               <>
                                 <td>{dateTime(r.created_at)}</td>
                                 <td>{r.action}</td>
-                                <td>{r.actor ?? "Peserta / sistem"}</td>
+                                <td>{r.actor ?? "Customer / system"}</td>
                                 <td>
                                   <small>{r.entity_id ?? "—"}</small>
                                 </td>
@@ -716,8 +775,8 @@ export function Dashboard({ session }: { session: any }) {
                             ) : tab === "bookings" ? (
                               <>
                                 <td>
-                                  <strong>{r.name}</strong>
-                                  <small>{r.email}</small>
+                                  <strong>{r.name || "Unnamed customer"}</strong>
+                                  <small>{r.email || "Email not provided"}</small>
                                   <small>{r.code}</small>
                                 </td>
                                 <td>
@@ -750,7 +809,7 @@ export function Dashboard({ session }: { session: any }) {
                                       }
                                     }}
                                   >
-                                    Detail
+                                    Details
                                   </Button>
                                 </td>
                               </>
@@ -758,12 +817,12 @@ export function Dashboard({ session }: { session: any }) {
                               <>
                                 <td>
                                   <strong>{r.name}</strong>
-                                  {r.owner && <small>Pemilik company</small>}
+                                  {r.owner && <small>Company Owner</small>}
                                 </td>
                                 <td>
                                   {r.owner
-                                    ? "Seluruh akses"
-                                    : r.permissions.length + " izin"}
+                                    ? "Full access"
+                                    : r.permissions.length + " permissions"}
                                 </td>
                                 <td>
                                   {!r.owner && can("roles.update") && (
@@ -774,7 +833,7 @@ export function Dashboard({ session }: { session: any }) {
                                         setEdit({ ...r, kind: "roles" })
                                       }
                                     >
-                                      Edit izin
+                                      Edit permissions
                                     </Button>
                                   )}
                                   {!r.owner && can("roles.delete") && (
@@ -786,7 +845,7 @@ export function Dashboard({ session }: { session: any }) {
                                         setEdit({ ...r, kind: "delete-role" })
                                       }
                                     >
-                                      Hapus
+                                      Delete
                                     </Button>
                                   )}
                                 </td>
@@ -794,14 +853,14 @@ export function Dashboard({ session }: { session: any }) {
                             ) : (
                               <>
                                 <td>
-                                  <strong>{r.name}</strong>
-                                  <small>{r.email}</small>
+                                  <strong>{r.name || "Unnamed customer"}</strong>
+                                  <small>{r.email || "Email not provided"}</small>
                                 </td>
                                 <td>
                                   {r.role_name ??
                                     (r.super_admin
                                       ? "Super Admin"
-                                      : "Pengguna company")}
+                                      : "Company user")}
                                 </td>
                                 <td>
                                   <Badge
@@ -832,7 +891,7 @@ export function Dashboard({ session }: { session: any }) {
                                           })
                                         }
                                       >
-                                        Reset akses
+                                        Reset password
                                       </Button>
                                       <Button
                                         size="sm"
@@ -841,7 +900,7 @@ export function Dashboard({ session }: { session: any }) {
                                           setEdit({ ...r, kind: "user-status" })
                                         }
                                       >
-                                        {r.active ? "Nonaktifkan" : "Aktifkan"}
+                                        {r.active ? "Disable" : "Enable"}
                                       </Button>
                                     </>
                                   )}
@@ -853,7 +912,7 @@ export function Dashboard({ session }: { session: any }) {
                       </tbody>
                     </table>
                   </div>
-                  {!rows.length && <Empty text="Belum ada data" />}
+                  {!rows.length && <Empty text="No records yet" />}
                   {rows.length > 15 && (
                     <Pagination
                       total={Math.ceil(rows.length / 15)}
@@ -867,10 +926,21 @@ export function Dashboard({ session }: { session: any }) {
           )}
         </main>
         <div className="dashboard-footer">
-          Auto Audit Interview Scheduler{" "}
-          <span>Ruang kerja yang lebih teratur.</span>
+          Auto Audit Calendar{" "}
+          <span>Keep every booking organized.</span>
         </div>
       </div>
+      <NewFormModal
+        cid={cid}
+        company={company}
+        rows={tab === "forms" ? rows : []}
+        isOpen={creatingForm}
+        onClose={() => setCreatingForm(false)}
+        onCreated={(created) => {
+          setCreatingForm(false);
+          setForm(created);
+        }}
+      />
       <Modal
         isOpen={!!edit}
         onClose={() => setEdit(undefined)}
@@ -884,31 +954,30 @@ export function Dashboard({ session }: { session: any }) {
                 {edit.kind === "company"
                   ? edit.id
                     ? "Edit company"
-                    : "Company baru"
+                    : "New company"
                   : edit.kind === "roles"
-                    ? "Role & hak akses"
+                    ? "Roles & permissions"
                     : edit.kind === "delete-role"
-                      ? "Hapus role"
+                      ? "Delete role"
                       : edit.kind === "user-status"
-                        ? "Ubah status pengguna"
-                        : "Akses pengguna"}
+                        ? "Update user status"
+                        : "User access"}
               </ModalHeader>
               <ModalBody>
                 <Notice text={notice} />
                 {edit.kind === "delete-role" ? (
                   <p>
-                    Hapus role {edit.name}? Role yang masih digunakan anggota
-                    tidak dapat dihapus.
+                    Delete role {edit.name}? Roles assigned to members cannot be deleted.
                   </p>
                 ) : edit.kind === "user-status" ? (
                   <p>
-                    {edit.active ? "Nonaktifkan" : "Aktifkan"} akses {edit.name}
+                    {edit.active ? "Disable" : "Enable"} access for {edit.name}
                     ?
                   </p>
                 ) : (
                   <>
                     <Field
-                      label="Nama"
+                      label="Name"
                       value={edit.name}
                       onChange={(v: string) => setEdit({ ...edit, name: v })}
                       required
@@ -916,23 +985,23 @@ export function Dashboard({ session }: { session: any }) {
                     {edit.kind === "company" ? (
                       <>
                         <Field
-                          label="Slug company"
+                          label="Company slug"
                           value={edit.slug}
                           onChange={(v: string) =>
                             setEdit({ ...edit, slug: v })
                           }
                           required
-                          description="Huruf kecil, angka, dan tanda hubung."
+                          description="Lowercase letters, numbers, and hyphens."
                         />
                         <Field
-                          label="Kontak"
+                          label="Contact"
                           value={edit.contact}
                           onChange={(v: string) =>
                             setEdit({ ...edit, contact: v })
                           }
                         />
                         <Field
-                          label="Zona waktu"
+                          label="Time zone"
                           value={edit.timezone}
                           onChange={(v: string) =>
                             setEdit({ ...edit, timezone: v })
@@ -966,7 +1035,7 @@ export function Dashboard({ session }: { session: any }) {
                                 })
                               }
                             >
-                              {p}
+                              {permissionLabel(p)}
                             </Checkbox>
                           ))}
                       </div>
@@ -984,7 +1053,7 @@ export function Dashboard({ session }: { session: any }) {
                         {edit.kind === "members" && (
                           <>
                             <SelectField
-                              label="Role company"
+                              label="Company role"
                               value={edit.role_id}
                               onChange={(v: string) =>
                                 setEdit({ ...edit, role_id: v })
@@ -1000,7 +1069,7 @@ export function Dashboard({ session }: { session: any }) {
                                 setEdit({ ...edit, active: v })
                               }
                             >
-                              Anggota aktif
+                              Active member
                             </Checkbox>
                             {session.user.super_admin && edit.id && (
                               <Checkbox
@@ -1009,12 +1078,11 @@ export function Dashboard({ session }: { session: any }) {
                                   setEdit({ ...edit, reset: v })
                                 }
                               >
-                                Buat tautan reset password
+                                Create a password reset link
                               </Checkbox>
                             )}
                             <p className="muted">
-                              Untuk company baru, undang minimal satu Company
-                              Owner.
+                              Invite at least one Company Owner for a new company.
                             </p>
                           </>
                         )}
@@ -1025,7 +1093,7 @@ export function Dashboard({ session }: { session: any }) {
               </ModalBody>
               <ModalFooter>
                 <Button variant="light" onPress={() => setEdit(undefined)}>
-                  Batal
+                  Cancel
                 </Button>
                 <Button
                   color="primary"
@@ -1059,7 +1127,7 @@ export function Dashboard({ session }: { session: any }) {
                     );
                   }}
                 >
-                  Simpan
+                  Save
                 </Button>
               </ModalFooter>
             </>
@@ -1068,25 +1136,24 @@ export function Dashboard({ session }: { session: any }) {
       </Modal>
       <Modal isOpen={!!link} onClose={() => setLink("")}>
         <ModalContent>
-          <ModalHeader>Tautan aktivasi siap</ModalHeader>
+          <ModalHeader>Activation link ready</ModalHeader>
           <ModalBody>
             <p>
-              Bagikan secara pribadi kepada pengguna. Berlaku 24 jam dan hanya
-              dapat dipakai sekali.
+              Share this link privately. It expires in 24 hours and can only be used once.
             </p>
-            <Field label="Tautan aktivasi" value={link} readOnly />
+            <Field label="Activation link" value={link} readOnly />
             <Button
               color="primary"
               onPress={() => navigator.clipboard.writeText(link)}
             >
-              Salin tautan
+              Copy link
             </Button>
             <p className="muted">
-              Tautan tidak dikirim otomatis melalui email.
+              This link is not emailed automatically.
             </p>
           </ModalBody>
           <ModalFooter>
-            <Button onPress={() => setLink("")}>Tutup</Button>
+            <Button onPress={() => setLink("")}>Close</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
@@ -1099,7 +1166,7 @@ export function Dashboard({ session }: { session: any }) {
         <ModalContent>
           {detail && (
             <>
-              <ModalHeader>Detail peserta</ModalHeader>
+              <ModalHeader>Booking details</ModalHeader>
               <ModalBody>
                 <Notice text={notice} />
                 <h2>{detail.name}</h2>
@@ -1110,7 +1177,7 @@ export function Dashboard({ session }: { session: any }) {
                   {detail.code} · <Badge value={detail.status} />
                 </p>
                 <p>{dateTime(detail.starts_at, detail.timezone)}</p>
-                <h3>Jawaban formulir · versi {detail.form_version}</h3>
+                <h3>Form responses · version {detail.form_version}</h3>
                 {detail.answers.map((a: any) => (
                   <div key={a.id}>
                     <strong>{a.label}</strong>
@@ -1120,7 +1187,7 @@ export function Dashboard({ session }: { session: any }) {
                 {can("bookings.update") && detail.status !== "cancelled" && (
                   <>
                     <SelectField
-                      label="Status peserta"
+                      label="Booking status"
                       value={detail.status}
                       onChange={async (v: string) => {
                         if (
@@ -1133,14 +1200,14 @@ export function Dashboard({ session }: { session: any }) {
                       options={["confirmed", "attended", "absent"]}
                     />
                     <SelectField
-                      label="Pindahkan ke sesi"
+                      label="Move to time slot"
                       value={moveTo}
                       onChange={setMoveTo}
                       options={moveSlots.map((s) => ({
                         value: s.id,
                         label:
                           dateTime(s.starts_at, detail.timezone) +
-                          ` · ${s.remaining} kursi tersisa`,
+                          ` · ${s.remaining} places remaining`,
                       }))}
                     />
                     <Button
@@ -1157,7 +1224,7 @@ export function Dashboard({ session }: { session: any }) {
                         }
                       }}
                     >
-                      Simpan pemindahan
+                      Save new time
                     </Button>
                   </>
                 )}
@@ -1172,17 +1239,31 @@ export function Dashboard({ session }: { session: any }) {
                       setDetail(undefined);
                     }}
                   >
-                    Batalkan booking dan kembalikan kursi
+                    Cancel booking and release capacity
                   </Button>
                 )}
               </ModalBody>
               <ModalFooter>
-                <Button onPress={() => setDetail(undefined)}>Tutup</Button>
+                <Button onPress={() => setDetail(undefined)}>Close</Button>
               </ModalFooter>
             </>
           )}
         </ModalContent>
       </Modal>
     </div>
+    {/* The builder covers the whole window, so the workspace behind it is taken out of reach. */}
+    {form && (
+      <FormBuilder
+        cid={cid}
+        company={company}
+        form={form}
+        can={can}
+        onClose={() => {
+          setForm(undefined);
+          reload();
+        }}
+      />
+    )}
+    </>
   );
 }

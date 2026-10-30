@@ -1,9 +1,12 @@
 "use client";
+import { DuplicateSettings } from "./duplicate-settings";
+import { defaultCalendarDuplicateRule, duplicateTypes } from "@/lib/duplicates";
 import { useState, useEffect } from "react";
 import { Button, Checkbox, Tabs, Tab } from "@heroui/react";
 import { DateTime } from "luxon";
 import { Field, SelectField, api, Notice, Badge, Empty, dateTime } from "./ui";
 import { ExtraFields } from "./public";
+import { defaultStandardFields } from "@/lib/schema";
 import { SuccessFields, defaultSuccess } from "./settings";
 import {
   Plus,
@@ -35,14 +38,23 @@ export function CampaignEditor({
     closes_at: null,
     status: "draft",
     fields: [],
+    standard_fields: defaultStandardFields(),
+    duplicate_rule: defaultCalendarDuplicateRule(),
     success: null,
     ...campaign,
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState("desktop");
+  const [preview, setPreview] = useState("mobile");
   const [answers, setAnswers] = useState({});
-  const set = (key: string, value: any) => setV({ ...v, [key]: value });
+  const set = (key: string, value: any) => setV((old: any) => {
+    let duplicate_rule = old.duplicate_rule;
+    if (key === "standard_fields") {
+      const fields = duplicate_rule.fields.filter((field: string) => !["name", "email", "phone"].includes(field) || value[field].enabled);
+      duplicate_rule = { ...duplicate_rule, fields, enabled: duplicate_rule.enabled && fields.length > 0 };
+    }
+    return { ...old, duplicate_rule, [key]: value };
+  });
   const updateField = (i: number, key: string, value: any) =>
     set(
       "fields",
@@ -61,13 +73,13 @@ export function CampaignEditor({
         startContent={<ArrowLeft size={17} />}
         onPress={onClose}
       >
-        Kembali ke gelombang
+        Back to calendars
       </Button>
       <div className="page-heading">
         <div>
-          <h1>{campaign.id ? "Edit gelombang" : "Gelombang baru"}</h1>
+          <h1>{campaign.id ? "Edit calendar" : "New calendar"}</h1>
           <p className="muted">
-            Konfigurasi pendaftaran dan pengalaman peserta.
+            Set up your calendar and customer booking experience.
           </p>
         </div>
         <Button
@@ -90,45 +102,40 @@ export function CampaignEditor({
             }
           }}
         >
-          Simpan gelombang
+          Save calendar
         </Button>
       </div>
       <Notice text={error} />
-      <Tabs aria-label="Pengaturan gelombang">
-        <Tab key="details" title="Informasi">
+      <Tabs aria-label="Calendar settings">
+        <Tab key="details" title="Details">
           <div className="card form-grid">
             <Field
-              label="Judul gelombang"
+              label="Calendar title"
               value={v.title}
               onChange={(s: string) => set("title", s)}
               required
             />
-            <Field
-              label="Slug tautan"
-              value={v.slug}
-              onChange={(s: string) => set("slug", s)}
-              required
-            />
+            <p className="muted">{campaign.id ? "Your booking link stays the same when you edit the title." : "Your booking link is created automatically from the calendar title."} Contact Super Admin if you need a custom link.</p>
             <div className="span-2">
               <Field
-                label="Deskripsi & instruksi interview"
+                label="Description & booking instructions"
                 type="textarea"
                 value={v.description}
                 onChange={(s: string) => set("description", s)}
               />
             </div>
             <Field
-              label="Posisi / divisi"
+              label="Service or category"
               value={v.position}
               onChange={(s: string) => set("position", s)}
             />
             <Field
-              label="Lokasi / pertemuan online"
+              label="Location or meeting link"
               value={v.location}
               onChange={(s: string) => set("location", s)}
             />
             <Field
-              label="Zona waktu"
+              label="Time zone"
               value={v.timezone}
               onChange={(s: string) => set("timezone", s)}
             />
@@ -143,7 +150,7 @@ export function CampaignEditor({
               ]}
             />
             <Field
-              label="Pendaftaran dibuka (zona waktu gelombang)"
+              label="Booking opens (calendar time zone)"
               type="datetime-local"
               value={local(v.opens_at)}
               onChange={(s: string) =>
@@ -154,7 +161,7 @@ export function CampaignEditor({
               }
             />
             <Field
-              label="Pendaftaran ditutup (zona waktu gelombang)"
+              label="Booking closes (calendar time zone)"
               type="datetime-local"
               value={local(v.closes_at)}
               onChange={(s: string) =>
@@ -170,21 +177,32 @@ export function CampaignEditor({
           <div className="editor-grid">
             <div>
               <div className="card">
-                <h3>Field inti</h3>
+                <h3>Standard fields</h3>
                 <p className="muted">
-                  Nama lengkap, email, nomor WhatsApp, dan persetujuan data
-                  selalu tersedia.
+                  Choose which contact fields to show and whether they are required. Data consent is included.
                 </p>
+                {(["name", "email", "phone"] as const).map(key => <div className="field-editor" key={key}>
+                  <strong>{{ name: "Full name", email: "Email", phone: "Phone number" }[key]}</strong>
+                  <div className="row wrap">
+                    <Checkbox isSelected={v.standard_fields[key].enabled} onValueChange={enabled => set("standard_fields", { ...v.standard_fields, [key]: { ...v.standard_fields[key], enabled } })}>Show field</Checkbox>
+                    <Checkbox isSelected={v.standard_fields[key].required} isDisabled={!v.standard_fields[key].enabled} onValueChange={required => set("standard_fields", { ...v.standard_fields, [key]: { ...v.standard_fields[key], required } })}>Required</Checkbox>
+                  </div>
+                </div>)}
               </div>
+              <DuplicateSettings rule={v.duplicate_rule} onChange={value => set("duplicate_rule", value)} options={[
+                ...(["name", "email", "phone"] as const).filter(key => v.standard_fields[key].enabled).map(key => ({ key, label: { name: "Full name", email: "Email", phone: "Phone number" }[key] })),
+                { key: "booking_date", label: "Booking date (calendar time zone)" },
+                ...v.fields.filter((f: any) => duplicateTypes.includes(f.type)).map((f: any) => ({ key: "field:" + f.id, label: f.label || "Untitled question" })),
+              ]} />
               {v.fields.map((f: any, i: number) => (
                 <div className="card field-editor" key={f.id}>
                   <div className="row between">
-                    <strong>Pertanyaan {i + 1}</strong>
+                    <strong>Question {i + 1}</strong>
                     <div className="row">
                       <Button
                         isIconOnly
                         size="sm"
-                        aria-label="Naikkan pertanyaan"
+                        aria-label="Move question up"
                         isDisabled={i === 0}
                         onPress={() => {
                           const a = [...v.fields];
@@ -197,7 +215,7 @@ export function CampaignEditor({
                       <Button
                         isIconOnly
                         size="sm"
-                        aria-label="Turunkan pertanyaan"
+                        aria-label="Move question down"
                         isDisabled={i === v.fields.length - 1}
                         onPress={() => {
                           const a = [...v.fields];
@@ -212,7 +230,7 @@ export function CampaignEditor({
                         size="sm"
                         color="danger"
                         variant="light"
-                        aria-label="Hapus pertanyaan"
+                        aria-label="Remove question"
                         onPress={() =>
                           set(
                             "fields",
@@ -225,12 +243,12 @@ export function CampaignEditor({
                     </div>
                   </div>
                   <Field
-                    label="Label pertanyaan"
+                    label="Question label"
                     value={f.label}
                     onChange={(s: string) => updateField(i, "label", s)}
                   />
                   <SelectField
-                    label="Jenis jawaban"
+                    label="Answer type"
                     value={f.type}
                     onChange={(s: string) => updateField(i, "type", s)}
                     options={[
@@ -251,13 +269,13 @@ export function CampaignEditor({
                     onChange={(s: string) => updateField(i, "placeholder", s)}
                   />
                   <Field
-                    label="Bantuan pengisian"
+                    label="Help text"
                     value={f.help}
                     onChange={(s: string) => updateField(i, "help", s)}
                   />
                   {["select", "radio"].includes(f.type) && (
                     <Field
-                      label="Pilihan (satu per baris)"
+                      label="Options (one per line)"
                       type="textarea"
                       value={f.options.join("\n")}
                       onChange={(s: string) =>
@@ -269,8 +287,8 @@ export function CampaignEditor({
                     <Field
                       label={
                         f.type === "number"
-                          ? "Nilai minimum"
-                          : "Panjang minimum"
+                          ? "Minimum value"
+                          : "Minimum length"
                       }
                       type="number"
                       value={f.min ?? ""}
@@ -281,8 +299,8 @@ export function CampaignEditor({
                     <Field
                       label={
                         f.type === "number"
-                          ? "Nilai maksimum"
-                          : "Panjang maksimum"
+                          ? "Maximum value"
+                          : "Maximum length"
                       }
                       type="number"
                       value={f.max ?? ""}
@@ -295,7 +313,7 @@ export function CampaignEditor({
                     isSelected={f.required}
                     onValueChange={(s) => updateField(i, "required", s)}
                   >
-                    Wajib diisi
+                    Required
                   </Checkbox>
                 </div>
               ))}
@@ -307,7 +325,7 @@ export function CampaignEditor({
                     ...v.fields,
                     {
                       id: crypto.randomUUID(),
-                      label: "Pertanyaan tambahan",
+                      label: "Additional question",
                       type: "text",
                       placeholder: "",
                       help: "",
@@ -317,14 +335,14 @@ export function CampaignEditor({
                   ])
                 }
               >
-                Tambah pertanyaan
+                Add question
               </Button>
             </div>
             <div>
               <div className="row between">
-                <h3>Preview formulir</h3>
+                <h3>Form preview</h3>
                 <SelectField
-                  label="Ukuran"
+                  label="Preview size"
                   value={preview}
                   onChange={setPreview}
                   options={["desktop", "mobile"]}
@@ -336,20 +354,20 @@ export function CampaignEditor({
                   (preview === "mobile" ? "mobile-preview" : "")
                 }
               >
-                <Field label="Nama lengkap" required />
-                <Field label="Email" type="email" required />
-                <Field label="Nomor WhatsApp" type="tel" required />
+                {v.standard_fields.name.enabled && <Field label="Full name" required={v.standard_fields.name.required} />}
+                {v.standard_fields.email.enabled && <Field label="Email" type="email" required={v.standard_fields.email.required} />}
+                {v.standard_fields.phone.enabled && <Field label="Phone number" type="tel" required={v.standard_fields.phone.required} />}
                 <ExtraFields
                   fields={v.fields}
                   answers={answers}
                   setAnswers={setAnswers}
                 />
-                <Checkbox>Persetujuan penggunaan data</Checkbox>
+                <Checkbox>Consent to use booking details</Checkbox>
               </div>
             </div>
           </div>
         </Tab>
-        <Tab key="success" title="Halaman sukses">
+        <Tab key="success" title="Confirmation page">
           <div className="card">
             <Checkbox
               isSelected={v.success !== null}
@@ -357,10 +375,10 @@ export function CampaignEditor({
                 set("success", enabled ? defaultSuccess : null)
               }
             >
-              Gunakan pengaturan khusus gelombang ini
+              Use custom confirmation settings for this calendar
             </Checkbox>
             <p className="muted">
-              Jika tidak diaktifkan, pengaturan company berlaku.
+              Otherwise, the company confirmation settings apply.
             </p>
             {v.success && (
               <SuccessFields
@@ -426,7 +444,7 @@ export function SlotManager({
       range.capacity < 1
     ) {
       setError(
-        "Periksa tanggal (maksimal 90 hari), interval 5–720 menit, dan kuota.",
+        "Check the dates (up to 90 days), interval (5–720 minutes), and capacity.",
       );
       return;
     }
@@ -447,14 +465,14 @@ export function SlotManager({
         });
         start = start.plus({ minutes: range.interval });
         if (a.length > 500) {
-          setError("Maksimal 500 slot per pembuatan.");
+          setError("Create up to 500 time slots at once.");
           return;
         }
       }
       d = d.plus({ days: 1 });
     }
     setPreview(a);
-    if (!a.length) setError("Tidak ada slot dalam rentang waktu ini.");
+    if (!a.length) setError("No time slots in this date range.");
   }
   async function save(data: any, id?: string) {
     setBusy(true);
@@ -479,14 +497,14 @@ export function SlotManager({
         startContent={<ArrowLeft size={16} />}
         onPress={onClose}
       >
-        Kembali ke gelombang
+        Back to calendars
       </Button>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">JADWAL INTERVIEW</span>
+          <span className="eyebrow">TIME SLOTS</span>
           <h1>{campaign.title}</h1>
           <p className="muted">
-            Zona waktu {campaign.timezone} · Kuota dapat berbeda di setiap sesi.
+            Time zone {campaign.timezone} · Each time slot can have a different capacity.
           </p>
         </div>
         {can("slots.create") && (
@@ -503,7 +521,7 @@ export function SlotManager({
               })
             }
           >
-            Tambah slot
+            Add time slot
           </Button>
         )}
       </div>
@@ -513,11 +531,11 @@ export function SlotManager({
           <table>
             <thead>
               <tr>
-                <th>Mulai</th>
-                <th>Selesai</th>
-                <th>Kuota</th>
-                <th>Terisi</th>
-                <th>Tersisa</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Capacity</th>
+                <th>Booked</th>
+                <th>Remaining</th>
                 <th>Status</th>
                 <th />
               </tr>
@@ -549,14 +567,14 @@ export function SlotManager({
             </tbody>
           </table>
         </div>
-        {!slots.length && <Empty text="Belum ada jadwal interview" />}
+        {!slots.length && <Empty text="No time slots yet" />}
       </div>
       {edit && (
         <div className="card">
-          <h2>{edit.id ? "Edit slot" : "Slot baru"}</h2>
+          <h2>{edit.id ? "Edit time slot" : "New time slot"}</h2>
           <div className="form-grid">
             <Field
-              label="Mulai"
+              label="Start"
               type="datetime-local"
               value={edit.starts_at ? local(edit.starts_at) : ""}
               onChange={(s: string) =>
@@ -569,7 +587,7 @@ export function SlotManager({
               }
             />
             <Field
-              label="Selesai"
+              label="End"
               type="datetime-local"
               value={edit.ends_at ? local(edit.ends_at) : ""}
               onChange={(s: string) =>
@@ -582,7 +600,7 @@ export function SlotManager({
               }
             />
             <Field
-              label="Kuota"
+              label="Capacity"
               type="number"
               min={1}
               value={edit.capacity}
@@ -601,37 +619,37 @@ export function SlotManager({
               ]}
             />
             <Field
-              label="Catatan"
+              label="Note"
               value={edit.note}
               onChange={(s: string) => setEdit({ ...edit, note: s })}
             />
           </div>
           <div className="form-actions">
             <Button variant="light" onPress={() => setEdit(undefined)}>
-              Batal
+              Cancel
             </Button>
             <Button
               color="primary"
               isLoading={busy}
               onPress={() => save(edit.id ? edit : [edit], edit.id)}
             >
-              Simpan slot
+              Save time slot
             </Button>
           </div>
         </div>
       )}
       {can("slots.create") && (
         <div className="card">
-          <h2>Buat jadwal sekaligus</h2>
-          <p className="muted">Periksa preview sebelum menyimpan semua sesi.</p>
+          <h2>Create multiple time slots</h2>
+          <p className="muted">Review the preview before saving all time slots.</p>
           <div className="form-grid three">
             {[
-              ["from", "Tanggal awal", "date"],
-              ["to", "Tanggal akhir", "date"],
-              ["start", "Jam mulai", "time"],
-              ["end", "Jam selesai", "time"],
-              ["interval", "Interval (menit)", "number"],
-              ["capacity", "Kuota per sesi", "number"],
+              ["from", "Start date", "date"],
+              ["to", "End date", "date"],
+              ["start", "Start time", "time"],
+              ["end", "End time", "time"],
+              ["interval", "Interval (minutes)", "number"],
+              ["capacity", "Capacity per slot", "number"],
             ].map(([key, label, type]) => (
               <Field
                 key={key}
@@ -649,21 +667,21 @@ export function SlotManager({
             ))}
           </div>
           <Button variant="bordered" onPress={generate}>
-            Preview jadwal
+            Preview time slots
           </Button>
           {!!preview.length && (
             <>
-              <h3>{preview.length} sesi akan dibuat</h3>
+              <h3>{preview.length} time slots will be created</h3>
               <div className="preview-slots">
                 {preview.map((s, i) => (
                   <div key={i}>
                     {dateTime(s.starts_at, campaign.timezone)} –{" "}
-                    {new Date(s.ends_at).toLocaleTimeString("id-ID", {
+                    {new Date(s.ends_at).toLocaleTimeString("en-GB", {
                       timeZone: campaign.timezone,
                       hour: "2-digit",
                       minute: "2-digit",
                     })}{" "}
-                    · {s.capacity} kursi
+                    · {s.capacity} places
                   </div>
                 ))}
               </div>
@@ -672,7 +690,7 @@ export function SlotManager({
                 isLoading={busy}
                 onPress={() => save(preview)}
               >
-                Simpan {preview.length} slot
+                Save {preview.length} slot
               </Button>
             </>
           )}

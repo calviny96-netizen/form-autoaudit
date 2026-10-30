@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Button, Checkbox, RadioGroup, Radio } from "@heroui/react";
 import {
   api,
@@ -10,6 +10,8 @@ import {
   Empty,
   dateTime,
   MotionIcon,
+  Loading,
+  Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
 } from "./ui";
 import {
   CalendarDays,
@@ -20,8 +22,10 @@ import {
   Copy,
   MessageCircle,
 } from "lucide-react";
-import { bookingSchema, validateAnswers } from "@/lib/schema";
+import { bookingSchema, validateAnswers, validationMessage, standardFieldsSchema, validateStandardDetails } from "@/lib/schema";
 import { ShineBorder } from "./shine-border";
+import { useBookingSubmission } from "./use-booking-submission";
+import { clearConfirmedAttempts } from "@/lib/booking-submission";
 export function ExtraFields({
   fields,
   answers,
@@ -106,7 +110,29 @@ export function PublicBooking({
   const [answers, setAnswers] = useState<any>({});
   const [consent, setConsent] = useState(false);
   const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
+  const submission = useBookingSubmission(company, campaign);
+  const [navigationPrompt, setNavigationPrompt] = useState<"edit" | "leave" | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  const stepRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!stepRef.current) return;
+    stepRef.current.focus({ preventScroll: true });
+    stepRef.current.scrollIntoView({ block: "start", behavior: "auto" });
+    setError("");
+  }, [step]);
+  useEffect(() => {
+    const payload = submission.restoredPayload;
+    if (!payload) return;
+    setSlot(payload.slot_id); setName(payload.name); setEmail(payload.email);
+    setPhone(payload.phone); setAnswers(payload.answers); setConsent(payload.consent);
+    setKey(payload.idempotency_key); setStep(3);
+  }, [submission.restoredPayload]);
+  useEffect(() => {
+    if (submission.state.error && errorRef.current) {
+      errorRef.current.focus({ preventScroll: true });
+      errorRef.current.scrollIntoView({ block: "center", behavior: "auto" });
+    }
+  }, [submission.state.error]);
   useEffect(() => {
     api(`public/${company}/${campaign}`)
       .then(setData)
@@ -117,10 +143,11 @@ export function PublicBooking({
     return (
       <div className="public-state">
         <Notice text={error} />
-        {!error && "Memuat jadwal…"}
-        <Footer />
+        {!error && <Loading label="Loading time slots" />}
+        {error && <Footer />}
       </div>
     );
+  const standard = standardFieldsSchema.parse(data.campaign.standard_fields ?? {});
   const p = data.campaign,
     c = data.company,
     b = c.branding;
@@ -150,7 +177,9 @@ export function PublicBooking({
       }
     >
       <header className="public-nav">
-        <a className="company-brand" href={`/b/${company}/${campaign}`}>
+        <a className="company-brand" href={`/b/${company}/${campaign}`} onClick={event => {
+          if (submission.shouldWarn()) { event.preventDefault(); setNavigationPrompt("leave"); }
+        }}>
           {b.logo ? (
             <img src={b.logo} alt={c.name} />
           ) : (
@@ -158,17 +187,17 @@ export function PublicBooking({
           )}
           <strong>{c.name}</strong>
         </a>
-        <span className="muted">Pendaftaran interview</span>
+        <span className="muted">Online booking</span>
       </header>
       <main className="public-container">
         <div className="public-heading">
-          <span className="eyebrow">LANGKAH BARU DIMULAI DI SINI</span>
+          <span className="eyebrow">A LITTLE TIME, WELL PLANNED</span>
           <h1>{b.heading || p.title}</h1>
           <p>{b.intro || p.description}</p>
           <div className="row metadata">
             <span>
               <MapPin size={17} />
-              {p.location || "Lokasi diinformasikan panitia"}
+              {p.location || "Location provided by the organizer"}
             </span>
             <span>
               <Clock3 size={17} />
@@ -177,44 +206,47 @@ export function PublicBooking({
           </div>
         </div>
         <div className="steps">
-          {["Pilih jadwal", "Isi formulir", "Periksa & daftar"].map((v, i) => (
-            <div key={v} className={step === i + 1 ? "current" : ""}>
+          {["Choose a time", "Your details", "Review & book"].map((v, i) => (
+            <div key={v} aria-current={step === i + 1 ? "step" : undefined} className={step === i + 1 ? "current" : ""}>
               <span>{step > i + 1 ? <Check size={16} /> : i + 1}</span>
               {v}
             </div>
           ))}
         </div>
-        <Notice text={error} />
-        {closed || future ? (
+        {((closed || future) && submission.state.phase === "idle") && <Notice text={error} />}
+        {(closed || future) && submission.state.phase === "idle" ? (
           <Empty
-            text={future ? "Pendaftaran belum dibuka" : "Pendaftaran ditutup"}
+            text={future ? "Booking is not open yet" : "Booking is closed"}
           >
-            {future && <p>Dibuka {dateTime(p.opens_at, p.timezone)}</p>}
+            {future && <p>Opens {dateTime(p.opens_at, p.timezone)}</p>}
           </Empty>
         ) : (
           <div className="public-grid">
-            <section className="card booking-card">
+            <section ref={stepRef} tabIndex={-1} className="card booking-card booking-heading" aria-label={`Booking step ${step} of 3`}>
+              <Notice text={error} />
+              {selected && step > 1 && <div className="booking-inline-summary"><strong>{dateTime(selected.starts_at, p.timezone)}</strong><span>{p.timezone} · {p.location || "Location details to follow"}</span></div>}
               {step === 1 ? (
                 <>
                   <div className="section-title">
                     <div>
-                      <span className="eyebrow">01 / JADWAL</span>
-                      <h2>Temukan waktu yang cocok</h2>
+                      <span className="eyebrow">01 / CHOOSE A TIME</span>
+                      <h2>Find a time that works</h2>
                       <p className="muted">
-                        Pilih tanggal, lalu sesi interview Anda.
+                        Choose a date, then an available time slot.
                       </p>
                     </div>
                     <CalendarDays />
                   </div>
                   {!days.length ? (
-                    <Empty text="Belum ada jadwal tersedia" />
+                    <Empty text="No time slots available" />
                   ) : (
                     <>
-                      <h3>Tanggal interview</h3>
+                      <h3>Available dates</h3>
                       <div className="date-options">
                         {days.map((d) => (
                           <button
                             key={d}
+                            aria-pressed={day === d}
                             className={day === d ? "selected" : ""}
                             onClick={() => {
                               setDay(d);
@@ -223,14 +255,14 @@ export function PublicBooking({
                           >
                             <span>
                               {new Date(d + "T12:00:00Z").toLocaleDateString(
-                                "id-ID",
+                                "en-GB",
                                 { weekday: "short", timeZone: "UTC" },
                               )}
                             </span>
                             <strong>{d.slice(-2)}</strong>
                             <span>
                               {new Date(d + "T12:00:00Z").toLocaleDateString(
-                                "id-ID",
+                                "en-GB",
                                 {
                                   month: "short",
                                   year: "numeric",
@@ -242,7 +274,7 @@ export function PublicBooking({
                         ))}
                       </div>
                       <h3>
-                        Sesi tersedia <small>{p.timezone}</small>
+                        Available times <small>{p.timezone}</small>
                       </h3>
                       <div className="slot-options">
                         {data.slots
@@ -250,13 +282,14 @@ export function PublicBooking({
                           .map((s: any) => (
                             <button
                               key={s.id}
+                              aria-pressed={slot === s.id}
                               disabled={s.remaining <= 0 || s.status !== "open"}
                               className={slot === s.id ? "selected" : ""}
                               onClick={() => setSlot(s.id)}
                             >
                               <strong>
                                 {new Date(s.starts_at).toLocaleTimeString(
-                                  "id-ID",
+                                  "en-GB",
                                   {
                                     timeZone: p.timezone,
                                     hour: "2-digit",
@@ -265,7 +298,7 @@ export function PublicBooking({
                                 )}{" "}
                                 –{" "}
                                 {new Date(s.ends_at).toLocaleTimeString(
-                                  "id-ID",
+                                  "en-GB",
                                   {
                                     timeZone: p.timezone,
                                     hour: "2-digit",
@@ -275,29 +308,29 @@ export function PublicBooking({
                               </strong>
                               <span>
                                 {s.status !== "open"
-                                  ? "Ditutup"
+                                  ? "Closed"
                                   : s.remaining === 0
-                                    ? "Slot penuh"
-                                    : `${s.remaining} kursi tersedia`}
+                                    ? "Fully booked"
+                                    : `${s.remaining} places available`}
                               </span>
                             </button>
                           ))}
                       </div>
                       {!day && (
                         <p className="muted">
-                          Pilih tanggal untuk melihat sesi.
+                          Choose a date to see available times.
                         </p>
                       )}
                       <div className="form-actions">
                         <span className="muted">
-                          Kursi dialokasikan setelah pendaftaran berhasil.
+                          Your place is reserved when your booking is confirmed.
                         </span>
                         <Button
                           color="primary"
                           isDisabled={!slot}
                           onPress={() => setStep(2)}
                         >
-                          Lanjutkan
+                          Continue
                         </Button>
                       </div>
                     </>
@@ -318,39 +351,42 @@ export function PublicBooking({
                         consent,
                         answers,
                       });
+                      validateStandardDetails({ name, email, phone }, standard);
                       validateAnswers(p.fields, answers);
                       setStep(3);
                     } catch (e) {
-                      setError((e as Error).message);
+                      setError(validationMessage(e));
                     }
                   }}
                 >
-                  <span className="eyebrow">02 / DATA PESERTA</span>
-                  <h2>Kenalkan diri Anda</h2>
-                  <Field
-                    label="Nama lengkap"
+                  <span className="eyebrow">02 / YOUR DETAILS</span>
+                  <h2>Tell us about yourself</h2>
+                  {standard.name.enabled && <Field
+                    label="Full name"
                     value={name}
                     onChange={setName}
-                    required
+                    required={standard.name.required}
+                    minLength={2}
+                    maxLength={200}
                     autoComplete="name"
-                  />
-                  <Field
+                  />}
+                  {standard.email.enabled && <Field
                     label="Email"
                     type="email"
                     value={email}
                     onChange={setEmail}
-                    required
+                    required={standard.email.required}
                     autoComplete="email"
-                  />
-                  <Field
-                    label="Nomor WhatsApp"
+                  />}
+                  {standard.phone.enabled && <Field
+                    label="Phone number"
                     type="tel"
                     value={phone}
                     onChange={setPhone}
-                    required
-                    placeholder="08… atau 62…"
+                    required={standard.phone.required}
+                    placeholder="e.g. +62 812 3456 7890"
                     autoComplete="tel"
-                  />
+                  />}
                   <ExtraFields
                     fields={p.fields}
                     answers={answers}
@@ -361,28 +397,25 @@ export function PublicBooking({
                     onValueChange={setConsent}
                     isRequired
                   >
-                    Saya menyetujui penggunaan data untuk proses interview.
+                    I agree to the use of my details to manage this booking.
                   </Checkbox>
                   <div className="form-actions">
                     <Button variant="light" onPress={() => setStep(1)}>
-                      Kembali
+                      Back
                     </Button>
                     <Button color="primary" type="submit">
-                      Periksa pendaftaran
+                      Review booking
                     </Button>
                   </div>
                 </form>
               ) : (
                 <>
-                  <span className="eyebrow">03 / KONFIRMASI</span>
-                  <h2>Sudah sesuai?</h2>
+                  <span className="eyebrow">03 / REVIEW & BOOK</span>
+                  <h2>Ready to confirm?</h2>
                   <dl className="summary">
-                    <dt>Nama</dt>
-                    <dd>{name}</dd>
-                    <dt>Email</dt>
-                    <dd>{email}</dd>
-                    <dt>WhatsApp</dt>
-                    <dd>{phone}</dd>
+                    {standard.name.enabled && <><dt>Name</dt><dd>{name || "Not provided"}</dd></>}
+                    {standard.email.enabled && <><dt>Email</dt><dd>{email || "Not provided"}</dd></>}
+                    {standard.phone.enabled && <><dt>Phone</dt><dd>{phone || "Not provided"}</dd></>}
                     {p.fields.map((f: any) => (
                       <div key={f.id}>
                         <dt>{f.label}</dt>
@@ -391,45 +424,36 @@ export function PublicBooking({
                     ))}
                   </dl>
                   <p className="muted">
-                    Pastikan data dan jadwal benar sebelum mendaftar.
+                    Check your details and selected time before confirming.
                   </p>
+                  {submission.state.phase === "submitting" && <div className="booking-progress" role="status">
+                    <Loading label="Confirming your booking" />
+                    <p>Please wait. Keep this page open while we confirm your time.</p>
+                  </div>}
+                  {submission.state.error && <div ref={errorRef} tabIndex={-1} role="alert" className="booking-error">
+                    <strong>{submission.state.phase === "uncertain" ? "Booking status not verified" : "Booking not confirmed"}</strong>
+                    <p>{submission.state.error}</p>
+                    <p>{submission.state.phase === "uncertain" ? "Your details are locked until the result is verified. Check and retry uses the same request to prevent duplicate bookings." : "Your details have been kept. Retry this booking, or confirm that you want to return to your details."}</p>
+                    {submission.state.phase === "failed" && <Button variant="bordered" onPress={() => setNavigationPrompt("edit")}>Return to details</Button>}
+                  </div>}
+                  {submission.state.phase === "confirmed" && <div className="booking-progress" role="status"><strong>Booking confirmed</strong><p>Opening your confirmation. If it does not open, use the button below.</p></div>}
                   <div className="form-actions">
-                    <Button variant="light" onPress={() => setStep(2)}>
-                      Ubah data
+                    <Button variant="light" isDisabled={submission.editDisabled} onPress={() => {
+                      if (submission.canEdit()) setStep(2);
+                    }}>
+                      Edit details
                     </Button>
-                    <Button
+                    {submission.state.phase === "confirmed" ? <Button
+                      as="a" href={"/success/" + submission.state.token} color="primary"
+                    >Open confirmation</Button> : <Button
                       color="primary"
-                      isLoading={busy}
-                      onPress={async () => {
-                        setBusy(true);
-                        setError("");
-                        try {
-                          const result = await api(
-                            `public/${company}/${campaign}`,
-                            "POST",
-                            {
-                              slot_id: slot,
-                              idempotency_key: key,
-                              name,
-                              email,
-                              phone,
-                              consent,
-                              answers,
-                            },
-                          );
-                          location.href = "/success/" + result.token;
-                        } catch (e) {
-                          setError((e as Error).message);
-                          api(`public/${company}/${campaign}`)
-                            .then(setData)
-                            .catch(() => {});
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
+                      isLoading={submission.state.phase === "submitting"}
+                      isDisabled={submission.confirmDisabled}
+                      onPress={() => submission.confirm({ slot_id: slot, idempotency_key: key, name, email, phone, consent, answers })}
                     >
-                      Daftar Interview
-                    </Button>
+                      {submission.state.phase === "submitting" ? "Confirming booking…" : submission.state.phase === "uncertain" ? "Check & retry booking" : submission.state.phase === "failed" ? "Retry booking" : "Confirm booking"}
+                    </Button>}
+
                   </div>
                 </>
               )}
@@ -438,13 +462,13 @@ export function PublicBooking({
               <div className="card summary-card">
                 <div className="row">
                   <CalendarDays size={20} />
-                  <h3>Interview Anda</h3>
+                  <h3>Your booking</h3>
                 </div>
                 <hr />
                 <strong>{p.title}</strong>
                 {p.position && <p>{p.position}</p>}
                 <p className="muted">
-                  {p.location || "Informasi lokasi menyusul"}
+                  {p.location || "Location details to follow"}
                 </p>
                 <div className="selected-summary">
                   {selected ? (
@@ -455,19 +479,39 @@ export function PublicBooking({
                       <span>{p.timezone}</span>
                     </>
                   ) : (
-                    <span>Jadwal belum dipilih</span>
+                    <span>No time selected</span>
                   )}
                 </div>
                 <p className="muted">
-                  Satu pendaftaran untuk satu peserta. Konfirmasi dan langkah
-                  selanjutnya tersedia setelah Anda mendaftar.
+                  Your confirmation and next steps will appear after booking.
                 </p>
               </div>
             </aside>
           </div>
         )}
-        <Footer />
+        <Footer config={b.footer} />
       </main>
+      <Modal isOpen={!!navigationPrompt} onClose={() => setNavigationPrompt(null)}>
+        <ModalContent>
+          <ModalHeader>{navigationPrompt === "edit" ? "Return to your details?" : "Leave this booking?"}</ModalHeader>
+          <ModalBody><p>{navigationPrompt === "edit"
+            ? "Your booking was not confirmed. Returning to your details will reset this failed attempt. You will need to review and confirm again."
+            : submission.state.phase === "failed"
+              ? "Your booking was not confirmed. Leave this page anyway? Your attempt will be kept in this tab so you can return."
+              : "Your booking may still be processing or may already have been saved. Leaving this page will not cancel it. Return and check the same attempt before making another booking."}</p></ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setNavigationPrompt(null)}>Stay on review</Button>
+            <Button color="primary" onPress={() => {
+              if (navigationPrompt === "edit") {
+                if (submission.acknowledgeEdit()) { setKey(crypto.randomUUID()); setError(""); setStep(2); }
+                setNavigationPrompt(null);
+              } else {
+                submission.allowLeave(); window.location.assign(`/b/${company}/${campaign}`);
+              }
+            }}>{navigationPrompt === "edit" ? "Return to details" : "Leave page"}</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
@@ -475,30 +519,38 @@ export function SuccessPage({ token }: { token: string }) {
   const [data, setData] = useState<any>();
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
-    api("success/" + token)
-      .then(setData)
-      .catch((e) => setError(e.message));
-  }, [token]);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    setError("");
+    api("success/" + token, "GET", undefined, { signal: controller.signal })
+      .then(result => { setData(result); clearConfirmedAttempts(token); })
+      .catch(() => { if (!cancelled) setError("We could not load your confirmation. Retrying this page will not create another booking."); })
+      .finally(() => clearTimeout(timeout));
+    let cancelled = false;
+    return () => { cancelled = true; controller.abort(); clearTimeout(timeout); };
+  }, [token, retry]);
   return (
     <main className="success-page">
       <div className="card success-card">
         <ShineBorder shineColor={["#7dd3fc", "#15803d"]} />
         <Notice text={error} />
+        {error && !data && <Button color="primary" onPress={() => setRetry(value => value + 1)}>Retry confirmation</Button>}
         {data ? (
           <>
             <MotionIcon success />
             <span className="eyebrow">
               {data.status === "cancelled"
-                ? "BOOKING DIBATALKAN"
-                : "PENDAFTARAN TERSIMPAN"}
+                ? "BOOKING CANCELLED"
+                : "BOOKING CONFIRMED"}
             </span>
             <h1>
               {data.status === "cancelled"
-                ? "Booking ini telah dibatalkan"
+                ? "This booking has been cancelled"
                 : data.config.title}
             </h1>
-            <p>{data.config.message}</p>
+            <p>{data.status === "cancelled" ? "This time is no longer reserved. Contact the organizer if you need another booking." : data.config.message}</p>
             <div className="success-detail">
               <strong>{data.title}</strong>
               <span>
@@ -506,7 +558,7 @@ export function SuccessPage({ token }: { token: string }) {
               </span>
               <span>{data.company}</span>
               <hr />
-              <span>Kode booking</span>
+              <span>Booking code</span>
               <b className="booking-code">{data.code}</b>
             </div>
             <p>{data.config.instructions}</p>
@@ -530,40 +582,39 @@ export function SuccessPage({ token }: { token: string }) {
               onPress={async () => {
                 try {
                   await navigator.clipboard.writeText(
-                    [
+                    (data.whatsapp.phone || data.whatsapp.url ? [
                       data.whatsapp.phone || data.whatsapp.url,
                       data.whatsapp.message,
-                    ].join("\n"),
+                    ] : [data.title, data.company, dateTime(data.starts_at, data.timezone) + " · " + data.timezone, "Booking code: " + data.code]).join("\n"),
                   );
                   setCopied(true);
                 } catch {
                   setError(
-                    "Penyalinan tidak tersedia. Pilih dan salin teks di bawah.",
+                    "Copy is unavailable. Select and copy the text below.",
                   );
                 }
               }}
             >
-              {copied ? "Tersalin" : "Salin nomor dan pesan"}
+              {copied ? "Copied" : data.whatsapp.phone || data.whatsapp.url ? "Copy number and message" : "Copy booking details"}
             </Button>
-            <details>
-              <summary>Nomor dan pesan WhatsApp</summary>
+            {(data.whatsapp.phone || data.whatsapp.url) && <details>
+              <summary>WhatsApp number and message</summary>
               <p>
                 {data.whatsapp.phone ||
                   data.whatsapp.url ||
-                  "Nomor panitia belum diatur."}
+                  "The organizer has not provided a phone number."}
               </p>
               <p className="pre-wrap">{data.whatsapp.message}</p>
-            </details>
+            </details>}
             <small className="muted">
-              Simpan halaman ini. Pesan WhatsApp dikirim setelah Anda menekan
-              kirim di WhatsApp.
+              {data.whatsapp.url ? "Save this page. Your WhatsApp message is sent only after you tap Send in WhatsApp." : "Save this page to keep your booking details."}
             </small>
           </>
         ) : (
-          !error && "Memuat konfirmasi…"
+          !error && <Loading label="Loading confirmation" />
         )}
       </div>
-      <Footer />
+      {(data || error) && <Footer config={data?.branding?.footer} />}
     </main>
   );
 }

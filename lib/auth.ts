@@ -27,7 +27,7 @@ export async function currentUser(req: Request) {
   return (
     (
       await pool.query(
-        "SELECT u.id,u.name,u.email,u.super_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active",
+        "SELECT u.id,u.name,u.email,u.super_admin,s.acting_company_id AS impersonating_company_id,CASE WHEN s.acting_user_id IS NOT NULL THEN s.user_id END AS impersonator_id FROM sessions s JOIN users original ON original.id=s.user_id JOIN users u ON u.id=coalesce(s.acting_user_id,s.user_id) LEFT JOIN companies c ON c.id=s.acting_company_id WHERE s.token_hash=$1 AND s.expires_at>now() AND original.active AND u.active AND u.registration_status='approved' AND (s.acting_user_id IS NULL OR (original.super_admin AND c.status='active' AND EXISTS(SELECT 1 FROM company_memberships m WHERE m.company_id=c.id AND m.user_id=u.id AND m.active)))",
         [hash(value)],
       )
     ).rows[0] ?? null
@@ -35,7 +35,7 @@ export async function currentUser(req: Request) {
 }
 export async function requireUser(req: Request) {
   return (
-    (await currentUser(req)) ?? fail(401, "Silakan masuk terlebih dahulu.")
+    (await currentUser(req)) ?? fail(401, "Please sign in first.")
   );
 }
 export async function access(
@@ -44,9 +44,11 @@ export async function access(
   cid: string,
   permission?: string,
 ) {
+  if (user.impersonating_company_id && user.impersonating_company_id !== cid)
+    fail(403, "This session is limited to the selected company.");
   const c = (await db.query("SELECT id FROM companies WHERE id=$1", [cid]))
     .rows[0];
-  if (!c) fail(404, "Company tidak ditemukan");
+  if (!c) fail(404, "Company not found");
   if (user.super_admin) return { owner: true, permissions: [] };
   const m = (
     await db.query(
@@ -55,7 +57,7 @@ export async function access(
     )
   ).rows[0];
   if (!m || (permission && !m.owner && !m.permissions.includes(permission)))
-    fail(403, "Anda tidak memiliki izin untuk tindakan ini.");
+    fail(403, "You do not have permission to perform this action.");
   return m;
 }
 // ponytail: global limits suit this local instance; use trusted-proxy IP limits before high-volume public traffic.
@@ -65,7 +67,7 @@ export async function rateLimit(key: string, limit: number) {
     [hash(key)],
   );
   if (r.rows[0].hits > limit)
-    fail(429, "Terlalu banyak percobaan. Coba kembali dalam 15 menit.");
+    fail(429, "Too many attempts. Try again in 15 minutes.");
 }
 export const sessionCookie = (v: string, age = 86400) =>
   `aa_session=${v}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${process.env.COOKIE_SECURE === "true" ? "; Secure" : ""}`;

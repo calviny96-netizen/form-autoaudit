@@ -3,14 +3,14 @@ import { useEffect, useState } from "react";
 import { Button } from "@heroui/react";
 import { api, Field, SelectField, Notice, Footer } from "./ui";
 export const defaultSuccess = {
-  title: "Selamat, pendaftaran Anda berhasil!",
-  message: "Silakan hubungi panitia untuk langkah berikutnya.",
-  label: "Hubungi Panitia via WhatsApp",
+  title: "Your booking is confirmed!",
+  message: "Your time is reserved. Keep this confirmation for your records.",
+  label: "Contact organizer on WhatsApp",
   mode: "template",
   url: "",
   phone: "",
   template:
-    "Halo Panitia, saya {nama}. Saya mendaftar {gelombang} pada {tanggal}, {jam} {zona_waktu}. Kode booking {kode_booking}.",
+    "Hello, I'm {name}. I booked {calendar} on {date} at {time} {timezone}. My booking code is {booking_code}.",
   instructions: "",
 };
 export function SuccessFields({
@@ -25,42 +25,42 @@ export function SuccessFields({
   return (
     <div className="form-grid">
       <Field
-        label="Judul sukses"
+        label="Confirmation title"
         value={v.title}
         onChange={(s: string) => set("title", s)}
       />
       <Field
-        label="Label tombol"
+        label="Button label"
         value={v.label}
         onChange={(s: string) => set("label", s)}
       />
       <div className="span-2">
         <Field
-          label="Pesan"
+          label="Message"
           type="textarea"
           value={v.message}
           onChange={(s: string) => set("message", s)}
         />
       </div>
       <SelectField
-        label="Mode WhatsApp"
+        label="WhatsApp mode"
         value={v.mode}
         onChange={(s: string) => set("mode", s)}
         options={[
-          { value: "template", label: "Nomor + template" },
-          { value: "direct", label: "Link langsung" },
+          { value: "template", label: "Phone number + template" },
+          { value: "direct", label: "Direct link" },
         ]}
       />
       {v.mode === "direct" ? (
         <Field
-          label="URL WhatsApp"
+          label="WhatsApp URL"
           value={v.url}
           onChange={(s: string) => set("url", s)}
           placeholder="https://wa.me/628…"
         />
       ) : (
         <Field
-          label="Nomor panitia"
+          label="Organizer phone number"
           type="tel"
           value={v.phone}
           onChange={(s: string) => set("phone", s)}
@@ -69,16 +69,16 @@ export function SuccessFields({
       )}
       <div className="span-2">
         <Field
-          label="Template pesan"
+          label="Message template"
           type="textarea"
           value={v.template}
           onChange={(s: string) => set("template", s)}
-          description="Variabel: {nama}, {kode_booking}, {company}, {gelombang}, {tanggal}, {jam}, {zona_waktu}"
+          description="Variables: {name}, {booking_code}, {company}, {calendar}, {date}, {time}, {timezone}"
         />
       </div>
       <div className="span-2">
         <Field
-          label="Instruksi tambahan"
+          label="Additional instructions"
           type="textarea"
           value={v.instructions}
           onChange={(s: string) => set("instructions", s)}
@@ -108,7 +108,7 @@ export function SuccessSettings({
                 name: "Auto Audit",
                 support_email: "",
                 email_note:
-                  "Undangan dibagikan manual; pengiriman email belum dikonfigurasi.",
+                  "Invitations are shared manually. Email delivery is not configured.",
                 upload_max_mb: 2,
                 ...x,
               }
@@ -126,18 +126,18 @@ export function SuccessSettings({
             {platform ? (
               <div className="form-grid">
                 <Field
-                  label="Nama platform"
+                  label="Platform name"
                   value={v.name}
                   onChange={(s: string) => setV({ ...v, name: s })}
                 />
                 <Field
-                  label="Email dukungan"
+                  label="Support email"
                   type="email"
                   value={v.support_email}
                   onChange={(s: string) => setV({ ...v, support_email: s })}
                 />
                 <Field
-                  label="Batas upload logo (MB, maks. 2)"
+                  label="Logo upload limit (MB, up to 2)"
                   type="number"
                   value={v.upload_max_mb}
                   onChange={(s: string) =>
@@ -145,14 +145,13 @@ export function SuccessSettings({
                   }
                 />
                 <Field
-                  label="Catatan konfigurasi email"
+                  label="Email configuration notes"
                   type="textarea"
                   value={v.email_note}
                   onChange={(s: string) => setV({ ...v, email_note: s })}
                 />
                 <p className="muted">
-                  Aktivasi memakai tautan sekali pakai yang dibagikan pengelola.
-                  Tidak ada email otomatis.
+                  Share activation links privately with users. Automatic email delivery is not configured.
                 </p>
               </div>
             ) : (
@@ -166,13 +165,13 @@ export function SuccessSettings({
                 onPress={async () => {
                   try {
                     await api(base, "POST", v);
-                    setNotice("Pengaturan disimpan.");
+                    setNotice("Settings saved.");
                   } catch (e) {
                     setNotice((e as Error).message);
                   }
                 }}
               >
-                Simpan pengaturan
+                Save settings
               </Button>
             </div>
           )}
@@ -209,9 +208,9 @@ export function BrandingSettings({
         <div className="editor-grid">
           <div className="card">
             <fieldset disabled={!editable} className="stack">
-              <h2>Identitas company</h2>
+              <h2>Company identity</h2>
               <label className="upload-label">
-                Logo company (PNG, JPEG, WebP, maks. 2 MB)
+                Company logo (PNG, JPEG, WebP, up to 2 MB)
                 <input
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
@@ -222,7 +221,7 @@ export function BrandingSettings({
                       fd.set("file", e.target.files[0]);
                       const r = await api(`companies/${cid}/logo`, "POST", fd);
                       setV({ ...v, logo: r.url });
-                      setNotice("Logo berhasil diperbarui.");
+                      setNotice("Logo updated.");
                     } catch (e) {
                       setNotice((e as Error).message);
                     }
@@ -230,31 +229,31 @@ export function BrandingSettings({
                 />
               </label>
               <Field
-                label="Warna utama"
+                label="Primary color"
                 type="color"
                 value={v.primary}
                 onChange={(s: string) => setV({ ...v, primary: s })}
-                description="Teks putih harus memiliki kontras minimal 4.5:1."
+                description="Use a color with at least 4.5:1 contrast against white text."
               />
               <Field
-                label="Warna aksen"
+                label="Accent color"
                 type="color"
                 value={v.accent}
                 onChange={(s: string) => setV({ ...v, accent: s })}
               />
               <SelectField
-                label="Preset latar"
+                label="Background preset"
                 value={v.background}
                 onChange={(s: string) => setV({ ...v, background: s })}
                 options={["#F5FAFF", "#FFFFFF", "#F0F9FF"]}
               />
               <Field
-                label="Judul halaman"
+                label="Page heading"
                 value={v.heading}
                 onChange={(s: string) => setV({ ...v, heading: s })}
               />
               <Field
-                label="Teks pengantar"
+                label="Introduction"
                 type="textarea"
                 value={v.intro}
                 onChange={(s: string) => setV({ ...v, intro: s })}
@@ -262,22 +261,22 @@ export function BrandingSettings({
               <div className="row">
                 <Button
                   variant="light"
-                  onPress={() => setV({ ...defaults, logo: v.logo })}
+                  onPress={() => setV({ ...defaults, logo: v.logo, footer: v.footer })}
                 >
-                  Reset default
+                  Reset to defaults
                 </Button>
                 <Button
                   color="primary"
                   onPress={async () => {
                     try {
                       await api(`companies/${cid}/branding`, "POST", v);
-                      setNotice("Branding berhasil disimpan.");
+                      setNotice("Branding saved.");
                     } catch (e) {
                       setNotice((e as Error).message);
                     }
                   }}
                 >
-                  Simpan branding
+                  Save branding
                 </Button>
               </div>
             </fieldset>
@@ -289,17 +288,17 @@ export function BrandingSettings({
               borderTop: "5px solid " + v.accent,
             }}
           >
-            <span className="eyebrow">PREVIEW LANGSUNG</span>
+            <span className="eyebrow">LIVE PREVIEW</span>
             {v.logo && <img src={v.logo} alt={name} className="preview-logo" />}
             <strong>{name}</strong>
-            <h2>{v.heading || "Interview berikutnya dimulai di sini."}</h2>
+            <h2>{v.heading || "Make time for your next appointment."}</h2>
             <p>
-              {v.intro || "Pilih jadwal yang sesuai dan lengkapi data Anda."}
+              {v.intro || "Choose a time that works and enter your details."}
             </p>
             <Button style={{ background: v.primary, color: "white" }}>
-              Pilih jadwal
+              Choose a time
             </Button>
-            <Footer />
+            <Footer config={v.footer} />
           </div>
         </div>
       )}

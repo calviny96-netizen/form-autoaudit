@@ -1,5 +1,5 @@
 {
-  "name": "auto-audit-interview",
+  "name": "auto-audit-calendar",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -9,11 +9,16 @@
     "migrate": "node --env-file=.env scripts/migrate.mjs",
     "bootstrap": "node --env-file=.env scripts/bootstrap.mjs",
     "test": "node --env-file=.env --import tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "uploads:cleanup": "node --env-file=.env --import tsx scripts/cleanup-form-files.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
     "@heroui/react": "2.8.10",
     "@lottiefiles/dotlottie-react": "0.17.1",
+    "archiver": "7.0.1",
     "framer-motion": "12.34.0",
     "lucide-react": "0.563.0",
     "luxon": "3.7.2",
@@ -25,6 +30,7 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
+    "@types/archiver": "7.0.0",
     "@types/luxon": "3.7.1",
     "@types/node": "22.19.11",
     "@types/pg": "8.16.0",

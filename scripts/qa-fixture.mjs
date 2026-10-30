@@ -11,6 +11,8 @@ if (process.argv[2] === "cleanup") {
   await db.query("BEGIN");
   for (const t of [
     "audit_logs",
+    "form_responses",
+    "forms",
     "bookings",
     "interview_slots",
     "form_versions",
@@ -22,6 +24,12 @@ if (process.argv[2] === "cleanup") {
     await db.query(`DELETE FROM ${t} WHERE company_id=$1`, [f.company.id]);
   await db.query("DELETE FROM audit_logs WHERE actor_id=$1", [f.user]);
   await db.query("DELETE FROM companies WHERE id=$1", [f.company.id]);
+  if (f.company.registered_by) {
+    await db.query("DELETE FROM audit_logs WHERE actor_id=$1", [f.company.registered_by]);
+    await db.query("DELETE FROM sessions WHERE user_id=$1 OR acting_user_id=$1", [f.company.registered_by]);
+    await db.query("DELETE FROM access_tokens WHERE user_id=$1", [f.company.registered_by]);
+    await db.query("DELETE FROM users WHERE id=$1", [f.company.registered_by]);
+  }
   await db.query("DELETE FROM sessions WHERE user_id=$1", [f.user]);
   await db.query("DELETE FROM users WHERE id=$1", [f.user]);
   await db.query("COMMIT");
@@ -68,6 +76,10 @@ const company = await api("platform/companies", {
   name: "Company Uji Penerimaan",
   slug: "uji-penerimaan",
   contact: "qa@example.test",
+  email: "qa-owner-" + randomUUID() + "@example.test",
+  phone: "628899" + Date.now().toString().slice(-9),
+  password,
+  confirm_password: password,
   timezone: "Asia/Jakarta",
   status: "active",
 });
